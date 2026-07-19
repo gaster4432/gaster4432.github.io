@@ -25,9 +25,9 @@ html, body {
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  padding: 10px 16px;
+  padding: 8px 14px;
   background: rgba(0,0,0,0.6);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 12px;
@@ -35,20 +35,23 @@ html, body {
   z-index: 10;
   opacity: 0;
   transition: opacity 0.3s;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 #controls:hover { opacity: 1; }
 #controls button {
   background: rgba(255,255,255,0.08);
   border: none;
   color: #fff;
-  padding: 6px 12px;
-  border-radius: 8px;
-  font-size: 13px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
   cursor: pointer;
   transition: background 0.15s;
 }
 #controls button:hover { background: rgba(255,255,255,0.15); }
-#controls input { width: 80px; }
+#controls input[type="range"] { width: 60px; }
+#controls input[type="text"] { width: 36px; text-align:center; background:rgba(255,255,255,0.08); border:none; border-radius:6px; color:#fff; font-size:16px; padding:2px; }
 #info {
   position: fixed;
   top: 12px;
@@ -60,125 +63,162 @@ html, body {
   pointer-events: none;
   text-align: center;
 }
+.count-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.3);
+  min-width: 30px;
+  text-align: center;
+}
 @media (max-width: 640px) {
-  #controls { flex-wrap: wrap; justify-content: center; max-width: 90%; bottom: 12px; }
+  #controls { max-width: 94%; bottom: 10px; gap: 6px; }
 }
 </style>
 </head>
 <body>
-<div id="info">move mouse to show controls</div>
+<div id="info">move mouse for controls · double-click reset</div>
 <canvas id="canvas"></canvas>
 <div id="controls">
   <button id="toggleBtn">Pause</button>
   <button id="speedDown">−</button>
   <input type="range" id="speedSlider" min="0.5" max="5" step="0.5" value="2">
   <button id="speedUp">+</button>
-  <input type="text" id="emojiInput" value="🐱" style="width:40px;text-align:center;background:rgba(255,255,255,0.08);border:none;border-radius:6px;color:#fff;font-size:18px;padding:2px;">
+  <input type="text" id="emojiInput" value="🐱">
   <button id="sizeDown">−</button>
-  <input type="range" id="sizeSlider" min="20" max="100" step="2" value="48">
+  <input type="range" id="sizeSlider" min="16" max="80" step="2" value="36">
   <button id="sizeUp">+</button>
   <button id="trailToggle">Trail</button>
+  <button id="resetBtn">Reset</button>
+  <span class="count-label" id="countLabel">1</span>
 </div>
 
 <script>
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-
 let W, H;
-function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-}
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
 resize();
 window.addEventListener('resize', resize);
 
 let paused = false;
 let showTrail = false;
 let emoji = '🐱';
-let size = 48;
+let baseSize = 36;
+let maxCount = 500;
 
-let x, y, vx, vy;
-function reset() {
-  x = W / 2;
-  y = H / 2;
-  const speed = parseFloat(document.getElementById('speedSlider').value);
-  const angle = Math.random() * 2 * Math.PI;
-  vx = Math.cos(angle) * speed * 1.5;
-  vy = Math.sin(angle) * speed * 1.5;
+let balls = [];
+
+function createBall(x, y, vx, vy, size) {
+  return { x, y, vx, vy, size, emoji };
 }
-reset();
 
-function bounce() {
+function addBall(x, y, vx, vy, size) {
+  if (balls.length >= maxCount) return;
+  balls.push(createBall(x, y, vx, vy, size));
+}
+
+function initBalls(count) {
+  balls = [];
+  const speed = parseFloat(document.getElementById('speedSlider').value) * 1.5;
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * 2 * Math.PI;
+    addBall(
+      W / 2 + (Math.random() - 0.5) * 100,
+      H / 2 + (Math.random() - 0.5) * 100,
+      Math.cos(angle) * speed,
+      Math.sin(angle) * speed,
+      baseSize
+    );
+  }
+}
+initBalls(1);
+
+function update() {
   if (paused) return;
-  x += vx;
-  y += vy;
-  if (x - size / 2 < 0) { x = size / 2; vx = -vx; }
-  if (x + size / 2 > W) { x = W - size / 2; vx = -vx; }
-  if (y - size / 2 < 0) { y = size / 2; vy = -vy; }
-  if (y + size / 2 > H) { y = H - size / 2; vy = -vy; }
+  const speed = parseFloat(document.getElementById('speedSlider').value) * 1.5;
+  const newBalls = [];
+  for (const b of balls) {
+    b.x += b.vx;
+    b.y += b.vy;
+    let hit = false;
+    if (b.x - b.size / 2 < 0) { b.x = b.size / 2; b.vx = -b.vx; hit = true; }
+    if (b.x + b.size / 2 > W) { b.x = W - b.size / 2; b.vx = -b.vx; hit = true; }
+    if (b.y - b.size / 2 < 0) { b.y = b.size / 2; b.vy = -b.vy; hit = true; }
+    if (b.y + b.size / 2 > H) { b.y = H - b.size / 2; b.vy = -b.vy; hit = true; }
+    if (hit && balls.length < maxCount) {
+      const angle = Math.random() * 2 * Math.PI;
+      newBalls.push(createBall(b.x, b.y, Math.cos(angle) * speed, Math.sin(angle) * speed, baseSize));
+    }
+  }
+  for (const nb of newBalls) balls.push(nb);
+  document.getElementById('countLabel').textContent = balls.length;
 }
 
 function draw() {
   if (!showTrail) {
     ctx.clearRect(0, 0, W, H);
   } else {
-    ctx.fillStyle = 'rgba(10,10,11,0.08)';
+    ctx.fillStyle = 'rgba(10,10,11,0.06)';
     ctx.fillRect(0, 0, W, H);
   }
-  ctx.font = `${size}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(emoji, x, y);
+  for (const b of balls) {
+    ctx.font = `${b.size}px sans-serif`;
+    ctx.fillText(b.emoji, b.x, b.y);
+  }
 }
 
-function loop() {
-  bounce();
-  draw();
-  requestAnimationFrame(loop);
-}
+function loop() { update(); draw(); requestAnimationFrame(loop); }
 loop();
 
 // ─── Controls ───
-document.getElementById('toggleBtn').onclick = () => {
-  paused = !paused;
-  document.getElementById('toggleBtn').textContent = paused ? 'Play' : 'Pause';
+const $ = id => document.getElementById(id);
+
+$('toggleBtn').onclick = () => { paused = !paused; $('toggleBtn').textContent = paused ? 'Play' : 'Pause'; };
+
+const speedSlider = $('speedSlider');
+speedSlider.oninput = () => {
+  const s = parseFloat(speedSlider.value) * 1.5;
+  for (const b of balls) {
+    const a = Math.atan2(b.vy, b.vx);
+    b.vx = Math.cos(a) * s;
+    b.vy = Math.sin(a) * s;
+  }
+};
+$('speedUp').onclick = () => speedSlider.value = Math.min(5, parseFloat(speedSlider.value) + 0.5);
+$('speedDown').onclick = () => speedSlider.value = Math.max(0.5, parseFloat(speedSlider.value) - 0.5);
+
+const sizeSlider = $('sizeSlider');
+sizeSlider.oninput = () => {
+  baseSize = parseInt(sizeSlider.value);
+  for (const b of balls) b.size = baseSize;
+};
+$('sizeUp').onclick = () => sizeSlider.value = Math.min(80, parseInt(sizeSlider.value) + 2);
+$('sizeDown').onclick = () => sizeSlider.value = Math.max(16, parseInt(sizeSlider.value) - 2);
+
+$('emojiInput').oninput = () => {
+  emoji = $('emojiInput').value || '🐱';
+  for (const b of balls) b.emoji = emoji;
 };
 
-const slider = document.getElementById('speedSlider');
-slider.oninput = () => {
-  const s = parseFloat(slider.value);
-  const angle = Math.atan2(vy, vx);
-  vx = Math.cos(angle) * s * 1.5;
-  vy = Math.sin(angle) * s * 1.5;
-};
-document.getElementById('speedUp').onclick = () => slider.value = Math.min(5, parseFloat(slider.value) + 0.5);
-document.getElementById('speedDown').onclick = () => slider.value = Math.max(0.5, parseFloat(slider.value) - 0.5);
-
-const sizeSlider = document.getElementById('sizeSlider');
-sizeSlider.oninput = () => { size = parseInt(sizeSlider.value); };
-document.getElementById('sizeUp').onclick = () => sizeSlider.value = Math.min(100, parseInt(sizeSlider.value) + 2);
-document.getElementById('sizeDown').onclick = () => sizeSlider.value = Math.max(20, parseInt(sizeSlider.value) - 2);
-
-document.getElementById('emojiInput').oninput = () => { emoji = document.getElementById('emojiInput').value || '🐱'; };
-
-document.getElementById('trailToggle').onclick = () => {
+$('trailToggle').onclick = () => {
   showTrail = !showTrail;
-  document.getElementById('trailToggle').textContent = showTrail ? 'Trail ON' : 'Trail';
+  $('trailToggle').textContent = showTrail ? 'Trail ON' : 'Trail';
   if (!showTrail) ctx.clearRect(0, 0, W, H);
 };
 
-// Double-click to restart
-canvas.ondblclick = reset;
+$('resetBtn').onclick = () => initBalls(1);
 
-// Hide controls after inactivity
+canvas.ondblclick = () => initBalls(1);
+
+// Hide controls
 let hideTimer;
 document.onmousemove = () => {
-  document.getElementById('controls').style.opacity = '1';
-  document.getElementById('info').style.opacity = '0';
+  $('controls').style.opacity = '1';
+  $('info').style.opacity = '0';
   clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
-    if (!document.getElementById('controls').matches(':hover'))
-      document.getElementById('controls').style.opacity = '0';
+    if (!$('controls').matches(':hover')) $('controls').style.opacity = '0';
   }, 3000);
 };
 </script>

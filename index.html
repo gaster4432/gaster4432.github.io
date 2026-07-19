@@ -52,7 +52,24 @@
   </div>
 </div>
 
+<div id="homeCat" style="position:fixed;pointer-events:none;z-index:0;font-size:24px;opacity:0.12;transition:opacity 0.3s" aria-hidden="true">🐱</div>
+
 <script>
+var hc = document.getElementById('homeCat');
+if (hc) {
+  var cx = Math.random() * window.innerWidth, cy = Math.random() * window.innerHeight;
+  var cvx = 0.5 + Math.random() * 0.5, cvy = 0.5 + Math.random() * 0.5;
+  hc.style.left = cx + 'px'; hc.style.top = cy + 'px';
+  (function animCat() {
+    cx += cvx; cy += cvy;
+    if (cx < 0 || cx > window.innerWidth - 30) cvx = -cvx;
+    if (cy < 0 || cy > window.innerHeight - 30) cvy = -cvy;
+    hc.style.left = cx + 'px'; hc.style.top = cy + 'px';
+    requestAnimationFrame(animCat);
+  })();
+  document.addEventListener('mousemove', function(){ hc.style.opacity = '0.18'; });
+}
+
 (function() {
   var count = parseInt(localStorage.getItem('visit_count') || '0', 10) + 1;
   localStorage.setItem('visit_count', count);
