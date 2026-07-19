@@ -1,0 +1,18 @@
+name = "cf-chat-worker"
+main = "worker.js"
+compatibility_date = "2025-04-01"
+
+# Create a KV namespace in Cloudflare Dashboard and paste the ID below:
+# Dashboard > Workers > KV > Create Namespace "CF_CHAT"
+[[kv_namespaces]]
+binding = "CF_CHAT"
+id = "your-kv-namespace-id-here"
+
+# Set these secrets via Dashboard or wrangler:
+#   npx wrangler secret put CF_ACCOUNT_ID
+#   npx wrangler secret put CF_AUTH_TOKEN
+# Or manually in Dashboard > Worker > Settings > Variables > Add secret
+
+# Optional: override the model
+# [vars]
+# CF_MODEL = "@cf/qwen/qwen2.5-coder-32b-instruct"
