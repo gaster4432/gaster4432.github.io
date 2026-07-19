@@ -3,81 +3,53 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>CF Chat</title>
+<title>gaster4432</title>
 <link rel="stylesheet" href="styles.css">
-<script src="characters.js"></script>
 </head>
 <body>
-<div id="app">
-  <div class="layout">
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <span class="logo">CF Chat</span>
-      </div>
+<div class="welcome">
+  <div class="welcome-bg"></div>
+  <div class="welcome-content">
+    <div class="welcome-header">
+      <span class="welcome-badge">gaster4432.github.io</span>
+      <h1>gaster4432</h1>
+      <p class="welcome-sub">projects & things</p>
+    </div>
 
-      <div class="sidebar-section-label">Characters</div>
-      <div class="char-sidebar-list" id="charSidebarList"></div>
-
-      <div class="sidebar-footer">
-        <button class="btn-sidebar-action" id="newChatBtn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          New Chat
-        </button>
-        <button class="btn-sidebar-action" id="historyBtn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          History
-        </button>
-      </div>
-    </aside>
-
-    <main class="main">
-      <div class="chat-area" id="chatArea">
-        <div class="chat-header" id="chatHeader">
-          <div class="chat-char-info">
-            <div class="chat-char-avatar" id="chatCharAvatar"></div>
-            <div>
-              <div class="chat-char-name" id="charName">Select a Character</div>
-              <div class="chat-char-greeting" id="charGreeting"></div>
-            </div>
-          </div>
-          <div class="chat-header-actions">
-            <button id="resetBtn" class="btn btn-ghost">Clear</button>
-          </div>
+    <div class="project-grid">
+      <a href="/cf/" class="project-card">
+        <div class="project-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         </div>
-
-        <div class="char-picker" id="charPicker">
-          <input id="characterSearch" class="search-input" placeholder="Search characters...">
-          <div class="char-grid" id="characterGrid"></div>
+        <div class="project-info">
+          <h3>CF Chat</h3>
+          <p>Chat with AI characters powered by Cloudflare Workers AI. Pure Vanilla Cookie, helpful assistant, and more.</p>
+          <span class="project-tag">AI</span>
+          <span class="project-tag">Chat</span>
         </div>
+      </a>
 
-        <div class="messages" id="messages">
-          <div class="empty-state" id="emptyState">
-            <div class="empty-icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            </div>
-            <p>Select a character and start chatting</p>
-          </div>
+      <div class="project-card project-card-empty">
+        <div class="project-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </div>
-
-        <div class="input-area" id="inputArea">
-          <input type="text" id="chatInput" class="chat-input" placeholder="Type a message..." autocomplete="off">
-          <button id="sendBtn" class="btn btn-send">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          </button>
+        <div class="project-info">
+          <h3 style="opacity:0.3">More coming soon</h3>
+          <p style="opacity:0.2">This space is ready for your next project.</p>
         </div>
       </div>
+    </div>
 
-      <div id="historyArea" class="main-overlay hidden">
-        <div class="overlay-header">
-          <h2>Chat History</h2>
-          <button class="overlay-close" id="closeHistoryBtn">&times;</button>
-        </div>
-        <div class="overlay-list" id="historyList"></div>
-      </div>
-    </main>
+    <div class="welcome-footer">
+      <p>gaster4432 &middot; 2026</p>
+    </div>
   </div>
 </div>
 
-<script src="app.js"></script>
+<script>
+if (window.innerWidth <= 768) {
+  document.querySelector('.welcome-bg').style.opacity = '0.3';
+}
+</script>
 </body>
 </html>

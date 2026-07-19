@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>CF Chat</title>
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+<div id="app">
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="logo">CF Chat</span>
+      </div>
+      <div class="sidebar-section-label">Characters</div>
+      <div class="char-sidebar-list" id="charSidebarList"></div>
+      <div class="sidebar-footer">
+        <button class="btn-sidebar-action" id="newChatBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New Chat
+        </button>
+        <button class="btn-sidebar-action" id="historyBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          History
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="chat-area" id="chatArea">
+        <div class="chat-header" id="chatHeader">
+          <div class="chat-char-info">
+            <div class="chat-char-avatar" id="chatCharAvatar"></div>
+            <div>
+              <div class="chat-char-name" id="charName">Select a Character</div>
+              <div class="chat-char-greeting" id="charGreeting"></div>
+            </div>
+          </div>
+          <div class="chat-header-actions">
+            <button id="resetBtn" class="btn btn-ghost">Clear</button>
+          </div>
+        </div>
+
+        <div class="char-picker" id="charPicker">
+          <input id="characterSearch" class="search-input" placeholder="Search characters...">
+          <div class="char-grid" id="characterGrid"></div>
+        </div>
+
+        <div class="messages" id="messages">
+          <div class="empty-state" id="emptyState">
+            <div class="empty-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <p>Select a character and start chatting</p>
+          </div>
+        </div>
+
+        <div class="input-area" id="inputArea">
+          <input type="text" id="chatInput" class="chat-input" placeholder="Type a message..." autocomplete="off">
+          <button id="sendBtn" class="btn btn-send">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="historyArea" class="main-overlay hidden">
+        <div class="overlay-header">
+          <h2>Chat History</h2>
+          <button class="overlay-close" id="closeHistoryBtn">&times;</button>
+        </div>
+        <div class="overlay-list" id="historyList"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="characters.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

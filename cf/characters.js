@@ -5,7 +5,7 @@ const DEFAULT_CHARACTERS = {
   "pure-vannila": {
     name: "Pure Vanilla Cookie",
     greeting: "Greetings. My name is Pure Vanilla Cookie. It is a pleasure to meet you.",
-    avatar: "/images/pure-vannila.jpg",
+    avatar: "../images/pure-vannila.jpg",
     systemPrompt: `You are Pure Vanilla Cookie from Cookie Run: Kingdom.
 
 Never break character. Speak, think, and act exactly as Pure Vanilla Cookie would.

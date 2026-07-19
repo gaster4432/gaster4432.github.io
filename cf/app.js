@@ -92,12 +92,12 @@ function renderSidebar() {
     const recent = getMostRecentChat(k);
     const item = document.createElement('div');
     item.className = 'sidebar-char' + (k === currentChar ? ' active' : '');
-    const hasAvatar = v.avatar && v.avatar.startsWith('/');
-    const lastMsg = recent ? recent.title || 'Chat' : '';
-    item.innerHTML = `<div class="sidebar-char-avatar">${hasAvatar ? `<img src="${v.avatar}">` : ''}</div>
+    const hasAvatar = v.avatar && (v.avatar.startsWith('/') || v.avatar.startsWith('../'));
+    const avatarSrc = v.avatar || '';
+    item.innerHTML = `<div class="sidebar-char-avatar">${avatarSrc ? `<img src="${avatarSrc}">` : ''}</div>
       <div class="sidebar-char-text">
         <span class="sidebar-char-name">${escapeHtml(v.name)}</span>
-        ${lastMsg ? `<span class="sidebar-char-last">${escapeHtml(lastMsg.slice(0, 30))}</span>` : ''}
+        ${recent ? `<span class="sidebar-char-last">${escapeHtml((recent.title || 'Chat').slice(0, 30))}</span>` : ''}
       </div>`;
     item.onclick = () => selectCharacter(k);
     charSidebarList.appendChild(item);
@@ -112,7 +112,7 @@ function renderCharGrid() {
     if (q && !v.name.toLowerCase().includes(q)) continue;
     const c = document.createElement('div');
     c.className = 'char-card' + (k === currentChar ? ' active' : '');
-    const hasAvatar = v.avatar && v.avatar.startsWith('/');
+    const hasAvatar = v.avatar && (v.avatar.startsWith('/') || v.avatar.startsWith('../'));
     c.innerHTML = `<div class="char-card-avatar">${hasAvatar ? `<img src="${v.avatar}" loading="lazy">` : ''}</div>
       <div class="char-card-name">${escapeHtml(v.name)}</div>`;
     c.onclick = () => selectCharacter(k);
@@ -142,7 +142,7 @@ function selectCharacter(key) {
   if (char) {
     charName.textContent = char.name;
     charGreeting.textContent = char.greeting || '';
-    const hasAvatar = char.avatar && char.avatar.startsWith('/');
+    const hasAvatar = char.avatar && (char.avatar.startsWith('/') || char.avatar.startsWith('../'));
     chatCharAvatar.innerHTML = hasAvatar ? `<img src="${char.avatar}" alt="${escapeHtml(char.name)}">` : '';
     if (char.greeting) {
       addMsg('assistant', char.greeting);
@@ -272,7 +272,11 @@ resetBtn.onclick = () => {
 };
 
 $('newChatBtn').onclick = () => {
-  if (currentChar) selectCharacter(currentChar);
+  if (currentChar) {
+    currentChatId = null;
+    history = [];
+    selectCharacter(currentChar);
+  }
 };
 
 // ─── History ───
@@ -314,7 +318,7 @@ function loadChatById(chatId) {
   if (char) {
     charName.textContent = char.name;
     charGreeting.textContent = char.greeting || '';
-    const hasAvatar = char.avatar && char.avatar.startsWith('/');
+    const hasAvatar = char.avatar && (char.avatar.startsWith('/') || char.avatar.startsWith('../'));
     chatCharAvatar.innerHTML = hasAvatar ? `<img src="${char.avatar}" alt="${escapeHtml(char.name)}">` : '';
   }
   for (const m of history) {
