@@ -48,5 +48,17 @@
   </div>
 </div>
 
+<script>
+(function() {
+  var count = parseInt(localStorage.getItem('visit_count') || '0', 10) + 1;
+  localStorage.setItem('visit_count', count);
+  if (count >= 50) {
+    localStorage.setItem('visit_count', '0');
+    var a = new Audio('Balls In Yo Jaws.mp3');
+    a.volume = 0.5;
+    a.play().catch(function(){});
+  }
+})();
+</script>
 </body>
 </html>
