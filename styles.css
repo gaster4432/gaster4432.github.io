@@ -315,36 +315,34 @@ input, textarea, button { font-family: inherit; }
   border-radius: 8px;
   color: #e8e8ed;
   font-size: 14px;
-  padding: 8px 10px;
+  padding: 10px;
+  padding-bottom: 36px;
   font-family: inherit;
   line-height: 1.5;
   resize: vertical;
   outline: none;
+  min-height: 40px;
 }
-.msg-edit-bar {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
+.msg-edit-container {
+  position: relative;
+  width: 100%;
 }
-.msg-edit-save, .msg-edit-cancel {
-  font-size: 12px;
-  padding: 4px 12px;
+.msg-edit-save-btn {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 12px;
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  font-weight: 500;
-  transition: all 0.15s;
-}
-.msg-edit-save {
   background: #3b82f6;
   color: #fff;
+  transition: opacity 0.15s;
+  letter-spacing: 0.2px;
 }
-.msg-edit-save:hover { opacity: 0.9; }
-.msg-edit-cancel {
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.5);
-}
-.msg-edit-cancel:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.msg-edit-save-btn:hover { opacity: 0.9; }
 
 /* ── Input ── */
 .input-area {

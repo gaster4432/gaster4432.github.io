@@ -247,40 +247,42 @@ function editUserMessage(id) {
   if (!el) return;
 
   const current = history[idx].content;
+  const container = document.createElement('div');
+  container.className = 'msg-edit-container';
+
   const input = document.createElement('textarea');
   input.className = 'msg-edit-input';
   input.value = current;
   input.style.minHeight = '40px';
   input.style.height = Math.max(40, el.offsetHeight) + 'px';
   input.oninput = function() { this.style.height = 'auto'; this.style.height = Math.max(40, this.scrollHeight) + 'px'; };
-  el.replaceWith(input);
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'msg-edit-save-btn';
+  saveBtn.textContent = 'Save & Regenerate';
+
+  container.appendChild(input);
+  container.appendChild(saveBtn);
+  el.replaceWith(container);
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
 
   const actionsEl = el.parentElement.querySelector('.msg-actions');
   if (actionsEl) actionsEl.style.display = 'none';
 
-  const saveBar = document.createElement('div');
-  saveBar.className = 'msg-edit-bar';
-  saveBar.innerHTML = '<button class="msg-edit-save">Save & Regenerate</button><button class="msg-edit-cancel">Cancel</button>';
-  el.parentElement.appendChild(saveBar);
-
-  saveBar.querySelector('.msg-edit-cancel').onclick = () => {
-    input.replaceWith(el);
-    saveBar.remove();
+  function cancelEdit() {
+    container.replaceWith(el);
     if (actionsEl) actionsEl.style.display = '';
-  };
+  }
 
-  saveBar.querySelector('.msg-edit-save').onclick = async () => {
+  saveBtn.onclick = async () => {
     const newText = input.value.trim();
-    if (!newText || newText === current) {
-      input.replaceWith(el);
-      saveBar.remove();
-      if (actionsEl) actionsEl.style.display = '';
-      return;
-    }
+    if (!newText || newText === current) { cancelEdit(); return; }
     history[idx].content = newText;
-    saveBar.remove();
+    const updatedMsg = document.createElement('span');
+    updatedMsg.className = 'msg-text';
+    updatedMsg.textContent = newText;
+    container.replaceWith(updatedMsg);
     if (actionsEl) actionsEl.style.display = '';
 
     const assistIdx = findNextAssistant(idx);
@@ -290,22 +292,12 @@ function editUserMessage(id) {
       if (el2) el2.remove();
       history.splice(assistIdx, 1);
     }
-
-    const updatedMsg = document.createElement('span');
-    updatedMsg.className = 'msg-text';
-    updatedMsg.textContent = newText;
-    input.replaceWith(updatedMsg);
     await regenerateAfter(idx);
   };
 
   input.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      saveBar.querySelector('.msg-edit-save').click();
-    }
-    if (e.key === 'Escape') {
-      saveBar.querySelector('.msg-edit-cancel').click();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveBtn.click(); }
+    if (e.key === 'Escape') { cancelEdit(); }
   });
 }
 
@@ -318,30 +310,34 @@ function editAssistantMessage(id) {
   if (!el) return;
 
   const current = history[idx].content;
+  const container = document.createElement('div');
+  container.className = 'msg-edit-container';
+
   const input = document.createElement('textarea');
   input.className = 'msg-edit-input';
   input.value = current;
   input.style.minHeight = '40px';
   input.oninput = function() { this.style.height = 'auto'; this.style.height = Math.max(40, this.scrollHeight) + 'px'; };
-  el.replaceWith(input);
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'msg-edit-save-btn';
+  saveBtn.textContent = 'Save';
+
+  container.appendChild(input);
+  container.appendChild(saveBtn);
+  el.replaceWith(container);
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
 
   const actionsEl = el.parentElement.querySelector('.msg-actions');
   if (actionsEl) actionsEl.style.display = 'none';
 
-  const saveBar = document.createElement('div');
-  saveBar.className = 'msg-edit-bar';
-  saveBar.innerHTML = '<button class="msg-edit-save">Save</button><button class="msg-edit-cancel">Cancel</button>';
-  el.parentElement.appendChild(saveBar);
-
-  saveBar.querySelector('.msg-edit-cancel').onclick = () => {
-    input.replaceWith(el);
-    saveBar.remove();
+  function cancelEdit() {
+    container.replaceWith(el);
     if (actionsEl) actionsEl.style.display = '';
-  };
+  }
 
-  saveBar.querySelector('.msg-edit-save').onclick = () => {
+  saveBtn.onclick = () => {
     const newText = input.value.trim();
     if (!newText) return;
     history[idx].content = newText;
@@ -352,15 +348,14 @@ function editAssistantMessage(id) {
     const updatedMsg = document.createElement('span');
     updatedMsg.className = 'msg-text';
     updatedMsg.textContent = newText;
-    input.replaceWith(updatedMsg);
-    saveBar.remove();
+    container.replaceWith(updatedMsg);
     if (actionsEl) actionsEl.style.display = '';
     updateVersionLabel(id);
     saveCurrentChat();
   };
 
   input.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') { saveBar.querySelector('.msg-edit-cancel').click(); }
+    if (e.key === 'Escape') { cancelEdit(); }
   });
 }
 
