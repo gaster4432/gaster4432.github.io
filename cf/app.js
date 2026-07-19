@@ -9,6 +9,7 @@ let currentChar = null;
 let currentChatId = null;
 let history = [];
 let sending = false;
+let msgCounter = 0;
 
 // ─── DOM ───
 const $ = id => document.getElementById(id);
@@ -29,6 +30,8 @@ const characterSearch = $('characterSearch');
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+function uid() { return 'm' + (++msgCounter) + '_' + Date.now(); }
 
 // ─── Storage ───
 function loadData() {
@@ -76,15 +79,6 @@ function initCharacters() {
   characters = { ...DEFAULT_CHARACTERS, ...custom };
 }
 
-function saveCustomCharacters() {
-  const defaults = Object.keys(DEFAULT_CHARACTERS);
-  const custom = {};
-  for (const [k, v] of Object.entries(characters)) {
-    if (!defaults.includes(k)) custom[k] = v;
-  }
-  localStorage.setItem('cf_chat_custom_chars', JSON.stringify(custom));
-}
-
 // ─── UI: Sidebar ───
 function renderSidebar() {
   charSidebarList.innerHTML = '';
@@ -92,7 +86,6 @@ function renderSidebar() {
     const recent = getMostRecentChat(k);
     const item = document.createElement('div');
     item.className = 'sidebar-char' + (k === currentChar ? ' active' : '');
-    const hasAvatar = v.avatar && (v.avatar.startsWith('/') || v.avatar.startsWith('../'));
     const avatarSrc = v.avatar || '';
     item.innerHTML = `<div class="sidebar-char-avatar">${avatarSrc ? `<img src="${avatarSrc}">` : ''}</div>
       <div class="sidebar-char-text">
@@ -130,23 +123,20 @@ function selectCharacter(key) {
     loadChatById(recent.id);
     return;
   }
-
   currentChatId = null;
   history = [];
   messagesEl.innerHTML = '';
   emptyState.classList.add('hidden');
   inputArea.classList.remove('hidden');
   charPicker.classList.add('hidden');
-
   const char = characters[key];
   if (char) {
     charName.textContent = char.name;
     charGreeting.textContent = char.greeting || '';
-    const hasAvatar = char.avatar && (char.avatar.startsWith('/') || char.avatar.startsWith('../'));
-    chatCharAvatar.innerHTML = hasAvatar ? `<img src="${char.avatar}" alt="${escapeHtml(char.name)}">` : '';
+    chatCharAvatar.innerHTML = (char.avatar && (char.avatar.startsWith('/') || char.avatar.startsWith('../')))
+      ? `<img src="${char.avatar}" alt="${escapeHtml(char.name)}">` : '';
     if (char.greeting) {
-      addMsg('assistant', char.greeting);
-      history.push({ role: 'assistant', content: char.greeting });
+      addMessage('assistant', char.greeting, null, true);
     }
   }
   renderSidebar();
@@ -154,17 +144,460 @@ function selectCharacter(key) {
   renderHistoryPanel();
 }
 
-// ─── Messages ───
-function addMsg(role, content, extraClass = '') {
+// ─── Message Rendering ───
+function addMessage(role, content, id, isGreeting) {
+  id = id || uid();
   const div = document.createElement('div');
-  div.className = `msg ${role}${extraClass ? ' ' + extraClass : ''}`;
-  div.textContent = content;
+  div.className = 'msg ' + role;
+  div.dataset.msgId = id;
+  const contentSpan = document.createElement('span');
+  contentSpan.className = 'msg-text';
+  contentSpan.textContent = content;
+  div.appendChild(contentSpan);
+
+  const actions = document.createElement('div');
+  actions.className = 'msg-actions';
+
+  if (role === 'user') {
+    const editBtn = document.createElement('button');
+    editBtn.className = 'msg-action-btn';
+    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    editBtn.title = 'Edit message';
+    editBtn.onclick = () => editUserMessage(id);
+    actions.appendChild(editBtn);
+  } else if (role === 'assistant' && !isGreeting) {
+    const regenBtn = document.createElement('button');
+    regenBtn.className = 'msg-action-btn';
+    regenBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+    regenBtn.title = 'Regenerate';
+    regenBtn.onclick = () => regenerateResponse(id);
+    actions.appendChild(regenBtn);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'msg-action-btn';
+    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    editBtn.title = 'Edit response';
+    editBtn.onclick = () => editAssistantMessage(id);
+    actions.appendChild(editBtn);
+
+    const msg = history.find(m => m._id === id);
+    if (msg && msg._versions && msg._versions.length > 1) {
+      const prevBtn = document.createElement('button');
+      prevBtn.className = 'msg-action-btn';
+      prevBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>';
+      prevBtn.title = 'Previous version';
+      prevBtn.onclick = () => cycleVersion(id, -1);
+      actions.appendChild(prevBtn);
+
+      const versionLabel = document.createElement('span');
+      versionLabel.className = 'version-label';
+      versionLabel.textContent = (msg._currentVersion + 1) + '/' + msg._versions.length;
+      actions.appendChild(versionLabel);
+
+      const nextBtn = document.createElement('button');
+      nextBtn.className = 'msg-action-btn';
+      nextBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
+      nextBtn.title = 'Next version';
+      nextBtn.onclick = () => cycleVersion(id, 1);
+      actions.appendChild(nextBtn);
+    }
+  }
+
+  div.appendChild(actions);
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return div;
 }
 
-// ─── Send ───
+function renderMessages() {
+  messagesEl.innerHTML = '';
+  for (const m of history) {
+    const div = addMessage(m.role, m.content, m._id, m._greeting);
+    if (m.role === 'assistant' && m._streaming) {
+      div.querySelector('.msg-text').classList.add('streaming');
+    }
+  }
+}
+
+function updateMsgText(id, content) {
+  const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
+  if (el) {
+    const textSpan = el.querySelector('.msg-text');
+    if (textSpan) textSpan.textContent = content;
+  }
+}
+
+function updateVersionLabel(id) {
+  const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
+  if (!el) return;
+  const msg = history.find(m => m._id === id);
+  if (!msg || !msg._versions) return;
+  const labels = el.querySelectorAll('.version-label');
+  if (labels.length > 0) {
+    labels[0].textContent = (msg._currentVersion + 1) + '/' + msg._versions.length;
+  }
+}
+
+// ─── Edit User Message ───
+function editUserMessage(id) {
+  if (sending) return;
+  const idx = history.findIndex(m => m._id === id);
+  if (idx === -1) return;
+  const el = messagesEl.querySelector(`[data-msg-id="${id}"] .msg-text`);
+  if (!el) return;
+
+  const current = history[idx].content;
+  const input = document.createElement('textarea');
+  input.className = 'msg-edit-input';
+  input.value = current;
+  input.style.minHeight = '40px';
+  input.style.height = Math.max(40, el.offsetHeight) + 'px';
+  input.oninput = function() { this.style.height = 'auto'; this.style.height = Math.max(40, this.scrollHeight) + 'px'; };
+  el.replaceWith(input);
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+
+  const actionsEl = el.parentElement.querySelector('.msg-actions');
+  if (actionsEl) actionsEl.style.display = 'none';
+
+  const saveBar = document.createElement('div');
+  saveBar.className = 'msg-edit-bar';
+  saveBar.innerHTML = '<button class="msg-edit-save">Save & Regenerate</button><button class="msg-edit-cancel">Cancel</button>';
+  el.parentElement.appendChild(saveBar);
+
+  saveBar.querySelector('.msg-edit-cancel').onclick = () => {
+    input.replaceWith(el);
+    saveBar.remove();
+    if (actionsEl) actionsEl.style.display = '';
+  };
+
+  saveBar.querySelector('.msg-edit-save').onclick = async () => {
+    const newText = input.value.trim();
+    if (!newText || newText === current) {
+      input.replaceWith(el);
+      saveBar.remove();
+      if (actionsEl) actionsEl.style.display = '';
+      return;
+    }
+    history[idx].content = newText;
+    saveBar.remove();
+    if (actionsEl) actionsEl.style.display = '';
+
+    const assistIdx = findNextAssistant(idx);
+    if (assistIdx !== -1) {
+      const oldId = history[assistIdx]._id;
+      const el2 = messagesEl.querySelector(`[data-msg-id="${oldId}"]`);
+      if (el2) el2.remove();
+      history.splice(assistIdx, 1);
+    }
+
+    const updatedMsg = document.createElement('span');
+    updatedMsg.className = 'msg-text';
+    updatedMsg.textContent = newText;
+    input.replaceWith(updatedMsg);
+    await regenerateAfter(idx);
+  };
+
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      saveBar.querySelector('.msg-edit-save').click();
+    }
+    if (e.key === 'Escape') {
+      saveBar.querySelector('.msg-edit-cancel').click();
+    }
+  });
+}
+
+// ─── Edit Assistant Message ───
+function editAssistantMessage(id) {
+  if (sending) return;
+  const idx = history.findIndex(m => m._id === id);
+  if (idx === -1) return;
+  const el = messagesEl.querySelector(`[data-msg-id="${id}"] .msg-text`);
+  if (!el) return;
+
+  const current = history[idx].content;
+  const input = document.createElement('textarea');
+  input.className = 'msg-edit-input';
+  input.value = current;
+  input.style.minHeight = '40px';
+  input.oninput = function() { this.style.height = 'auto'; this.style.height = Math.max(40, this.scrollHeight) + 'px'; };
+  el.replaceWith(input);
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+
+  const actionsEl = el.parentElement.querySelector('.msg-actions');
+  if (actionsEl) actionsEl.style.display = 'none';
+
+  const saveBar = document.createElement('div');
+  saveBar.className = 'msg-edit-bar';
+  saveBar.innerHTML = '<button class="msg-edit-save">Save</button><button class="msg-edit-cancel">Cancel</button>';
+  el.parentElement.appendChild(saveBar);
+
+  saveBar.querySelector('.msg-edit-cancel').onclick = () => {
+    input.replaceWith(el);
+    saveBar.remove();
+    if (actionsEl) actionsEl.style.display = '';
+  };
+
+  saveBar.querySelector('.msg-edit-save').onclick = () => {
+    const newText = input.value.trim();
+    if (!newText) return;
+    history[idx].content = newText;
+    if (!history[idx]._versions) history[idx]._versions = [newText];
+    else if (!history[idx]._versions.includes(newText)) history[idx]._versions.push(newText);
+    history[idx]._currentVersion = history[idx]._versions.length - 1;
+
+    const updatedMsg = document.createElement('span');
+    updatedMsg.className = 'msg-text';
+    updatedMsg.textContent = newText;
+    input.replaceWith(updatedMsg);
+    saveBar.remove();
+    if (actionsEl) actionsEl.style.display = '';
+    updateVersionLabel(id);
+    saveCurrentChat();
+  };
+
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') { saveBar.querySelector('.msg-edit-cancel').click(); }
+  });
+}
+
+// ─── Regenerate ───
+function findPrevUser(idx) {
+  for (let i = idx - 1; i >= 0; i--) {
+    if (history[i].role === 'user') return i;
+  }
+  return -1;
+}
+
+function findNextAssistant(idx) {
+  for (let i = idx + 1; i < history.length; i++) {
+    if (history[i].role === 'assistant') return i;
+  }
+  return -1;
+}
+
+function buildSendHistory(upToIdx) {
+  const char = characters[currentChar];
+  const result = [];
+  for (let i = 0; i <= upToIdx; i++) {
+    const m = history[i];
+    if (char && m.role === 'assistant' && m.content === char.greeting) continue;
+    result.push({ role: m.role, content: m.content });
+  }
+  return result;
+}
+
+async function regenerateResponse(id) {
+  if (sending) return;
+  const assistIdx = history.findIndex(m => m._id === id);
+  if (assistIdx === -1) return;
+  const userIdx = findPrevUser(assistIdx);
+  if (userIdx === -1) return;
+
+  const oldContent = history[assistIdx].content;
+  if (!history[assistIdx]._versions) history[assistIdx]._versions = [oldContent];
+  else if (!history[assistIdx]._versions.includes(oldContent)) history[assistIdx]._versions.push(oldContent);
+  history[assistIdx]._currentVersion = history[assistIdx]._versions.length;
+
+  const msg = history[userIdx].content;
+  const sendHistory = buildSendHistory(userIdx);
+  const char = characters[currentChar];
+
+  const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
+  if (el) {
+    el.querySelector('.msg-text').textContent = '';
+    el.querySelector('.msg-text').classList.add('streaming');
+  }
+
+  sending = true;
+  let full = '';
+
+  try {
+    const res = await fetch(`${WORKER_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: msg,
+        character: { name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
+        history: sendHistory,
+      }),
+    });
+    if (!res.ok) throw new Error('Request failed');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true });
+      const lines = text.split('\n');
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const chunk = JSON.parse(line.slice(6));
+          if (chunk.content) {
+            full += chunk.content;
+            updateMsgText(id, full);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    full = oldContent;
+  }
+
+  sending = false;
+  history[assistIdx].content = full || oldContent;
+  history[assistIdx]._versions.push(full || oldContent);
+  history[assistIdx]._currentVersion = history[assistIdx]._versions.length - 1;
+
+  const el2 = messagesEl.querySelector(`[data-msg-id="${id}"]`);
+  if (el2) {
+    el2.querySelector('.msg-text').classList.remove('streaming');
+    if (full) el2.querySelector('.msg-text').textContent = full;
+    const oldActions = el2.querySelector('.msg-actions');
+    if (oldActions) {
+      const newActions = buildActions(id);
+      oldActions.replaceWith(newActions);
+    }
+  }
+  updateVersionLabel(id);
+  saveCurrentChat();
+}
+
+function cycleVersion(id, dir) {
+  const idx = history.findIndex(m => m._id === id);
+  if (idx === -1) return;
+  const msg = history[idx];
+  if (!msg._versions || msg._versions.length < 2) return;
+
+  msg._currentVersion = (msg._currentVersion + dir + msg._versions.length) % msg._versions.length;
+  msg.content = msg._versions[msg._currentVersion];
+  updateMsgText(id, msg.content);
+  updateVersionLabel(id);
+  saveCurrentChat();
+}
+
+async function regenerateAfter(userIdx) {
+  const char = characters[currentChar];
+  const msg = history[userIdx].content;
+  const sendHistory = buildSendHistory(userIdx);
+
+  const newId = uid();
+  const streamDiv = addMessage('assistant', '', newId, false);
+  const entry = { role: 'assistant', content: '', _id: newId, _versions: [], _currentVersion: 0, _streaming: true };
+  history.splice(userIdx + 1, 0, entry);
+  sending = true;
+  let full = '';
+
+  try {
+    const res = await fetch(`${WORKER_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: msg,
+        character: { name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
+        history: sendHistory,
+      }),
+    });
+    if (!res.ok) throw new Error('Request failed');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true });
+      const lines = text.split('\n');
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const chunk = JSON.parse(line.slice(6));
+          if (chunk.content) {
+            full += chunk.content;
+            updateMsgText(newId, full);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    full = 'Error generating response';
+  }
+
+  sending = false;
+  entry.content = full;
+  entry._versions = [full];
+  entry._currentVersion = 0;
+  delete entry._streaming;
+  const el = messagesEl.querySelector(`[data-msg-id="${newId}"]`);
+  if (el) {
+    el.querySelector('.msg-text').classList.remove('streaming');
+    el.querySelector('.msg-text').textContent = full;
+    const oldActions = el.querySelector('.msg-actions');
+    if (oldActions) {
+      const newActions = buildActions(newId);
+      oldActions.replaceWith(newActions);
+    }
+  }
+  saveCurrentChat();
+}
+
+function buildActions(id) {
+  const div = document.createElement('div');
+  div.className = 'msg-actions';
+  const msg = history.find(m => m._id === id);
+  if (!msg) return div;
+
+  if (msg.role === 'user') {
+    const btn = document.createElement('button');
+    btn.className = 'msg-action-btn';
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    btn.title = 'Edit';
+    btn.onclick = () => editUserMessage(id);
+    div.appendChild(btn);
+  } else if (!msg._greeting) {
+    const regen = document.createElement('button');
+    regen.className = 'msg-action-btn';
+    regen.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+    regen.title = 'Regenerate';
+    regen.onclick = () => regenerateResponse(id);
+    div.appendChild(regen);
+
+    const edit = document.createElement('button');
+    edit.className = 'msg-action-btn';
+    edit.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    edit.title = 'Edit';
+    edit.onclick = () => editAssistantMessage(id);
+    div.appendChild(edit);
+
+    if (msg._versions && msg._versions.length > 1) {
+      const prev = document.createElement('button');
+      prev.className = 'msg-action-btn';
+      prev.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>';
+      prev.title = 'Previous';
+      prev.onclick = () => cycleVersion(id, -1);
+      div.appendChild(prev);
+
+      const lbl = document.createElement('span');
+      lbl.className = 'version-label';
+      lbl.textContent = (msg._currentVersion + 1) + '/' + msg._versions.length;
+      div.appendChild(lbl);
+
+      const next = document.createElement('button');
+      next.className = 'msg-action-btn';
+      next.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
+      next.title = 'Next';
+      next.onclick = () => cycleVersion(id, 1);
+      div.appendChild(next);
+    }
+  }
+  return div;
+}
+
+// ─── Send Message ───
 sendBtn.onclick = sendMessage;
 chatInput.onkeydown = (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
@@ -177,16 +610,17 @@ async function sendMessage() {
   sending = true;
   sendBtn.disabled = true;
 
-  addMsg('user', msg);
-  history.push({ role: 'user', content: msg });
+  const userMsg = { role: 'user', content: msg, _id: uid() };
+  history.push(userMsg);
+  addMessage('user', msg, userMsg._id, false);
 
   const char = characters[currentChar];
-  const streamDiv = addMsg('assistant', '', 'streaming');
-
-  const sendHistory = history.filter(m => {
-    if (char && m.role === 'assistant' && m.content === char.greeting) return false;
-    return true;
-  });
+  const sendHistory = buildSendHistory(history.length - 1);
+  const assistId = uid();
+  const streamDiv = addMessage('assistant', '', assistId, false);
+  const assistEntry = { role: 'assistant', content: '', _id: assistId, _versions: [], _currentVersion: 0 };
+  history.push(assistEntry);
+  let full = '';
 
   try {
     const res = await fetch(`${WORKER_URL}/api/chat`, {
@@ -194,27 +628,13 @@ async function sendMessage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: msg,
-        character: {
-          name: char.name,
-          greeting: char.greeting || '',
-          systemPrompt: char.systemPrompt || '',
-        },
+        character: { name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
         history: sendHistory,
       }),
     });
-
-    if (!res.ok) {
-      streamDiv.remove();
-      addMsg('system', 'Request failed');
-      sending = false;
-      sendBtn.disabled = false;
-      return;
-    }
-
+    if (!res.ok) throw new Error('Request failed');
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    let full = '';
-
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -222,47 +642,53 @@ async function sendMessage() {
       const lines = text.split('\n');
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6);
         try {
-          const chunk = JSON.parse(payload);
+          const chunk = JSON.parse(line.slice(6));
           if (chunk.content) {
             full += chunk.content;
-            streamDiv.textContent = full;
+            updateMsgText(assistId, full);
             messagesEl.scrollTop = messagesEl.scrollHeight;
-          }
-          if (chunk.error) {
-            streamDiv.remove();
-            addMsg('system', 'Error: ' + chunk.error);
           }
         } catch {}
       }
     }
-
-    streamDiv.classList.remove('streaming');
-    if (full) {
-      streamDiv.className = 'msg assistant';
-      history.push({ role: 'assistant', content: full });
-
-      if (!currentChatId) currentChatId = crypto.randomUUID();
-      upsertChat({
-        id: currentChatId,
-        character: currentChar,
-        title: msg.slice(0, 60),
-        messages: history,
-        updated_at: new Date().toISOString(),
-      });
-      renderSidebar();
-      renderHistoryPanel();
-    } else {
-      streamDiv.remove();
-    }
   } catch (e) {
-    streamDiv.remove();
-    addMsg('system', 'Error: ' + e.message);
+    full = 'Error: ' + e.message;
   }
 
   sending = false;
   sendBtn.disabled = false;
+  assistEntry.content = full;
+  assistEntry._versions = [full];
+  assistEntry._currentVersion = 0;
+  updateMsgText(assistId, full);
+
+  const el = messagesEl.querySelector(`[data-msg-id="${assistId}"]`);
+  if (el) {
+    el.querySelector('.msg-text').classList.remove('streaming');
+    const oldActions = el.querySelector('.msg-actions');
+    if (oldActions) {
+      const newActions = buildActions(assistId);
+      oldActions.replaceWith(newActions);
+    }
+  }
+
+  if (!currentChatId) currentChatId = uid();
+  saveCurrentChat();
+  renderSidebar();
+  renderHistoryPanel();
+}
+
+function saveCurrentChat() {
+  if (!currentChatId || !currentChar) return;
+  const firstUser = history.find(m => m.role === 'user');
+  upsertChat({
+    id: currentChatId,
+    character: currentChar,
+    title: firstUser ? firstUser.content.slice(0, 60) : 'Chat',
+    messages: history,
+    updated_at: new Date().toISOString(),
+  });
 }
 
 // ─── Reset ───
@@ -272,11 +698,12 @@ resetBtn.onclick = () => {
 };
 
 $('newChatBtn').onclick = () => {
-  if (currentChar) {
-    currentChatId = null;
-    history = [];
-    selectCharacter(currentChar);
-  }
+  currentChatId = null;
+  history = [];
+  messagesEl.innerHTML = '';
+  emptyState.classList.add('hidden');
+  inputArea.classList.remove('hidden');
+  if (currentChar) selectCharacter(currentChar);
 };
 
 // ─── History ───
@@ -308,7 +735,13 @@ function loadChatById(chatId) {
   if (!chat) return;
   currentChatId = chat.id;
   currentChar = chat.character;
-  history = chat.messages || [];
+  history = (chat.messages || []).map(m => ({
+    ...m,
+    _versions: m._versions || [m.content],
+    _currentVersion: m._currentVersion || 0,
+    _id: m._id || uid(),
+    _greeting: m._greeting || false,
+  }));
   messagesEl.innerHTML = '';
   emptyState.classList.add('hidden');
   inputArea.classList.remove('hidden');
@@ -318,12 +751,10 @@ function loadChatById(chatId) {
   if (char) {
     charName.textContent = char.name;
     charGreeting.textContent = char.greeting || '';
-    const hasAvatar = char.avatar && (char.avatar.startsWith('/') || char.avatar.startsWith('../'));
-    chatCharAvatar.innerHTML = hasAvatar ? `<img src="${char.avatar}" alt="${escapeHtml(char.name)}">` : '';
+    chatCharAvatar.innerHTML = (char.avatar && (char.avatar.startsWith('/') || char.avatar.startsWith('../')))
+      ? `<img src="${char.avatar}" alt="${escapeHtml(char.name)}">` : '';
   }
-  for (const m of history) {
-    addMsg(m.role, m.content);
-  }
+  renderMessages();
   renderSidebar();
   renderCharGrid();
   renderHistoryPanel();
