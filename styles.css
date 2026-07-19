@@ -7,14 +7,14 @@ html, body {
   font-size: 14px;
   line-height: 1.5;
 }
-body { background: radial-gradient(ellipse at 30% 20%, rgba(146,145,255,0.04) 0%, transparent 60%), #0a0a0b; }
+body { background: radial-gradient(ellipse at 30% 20%, rgba(59,130,246,0.04) 0%, transparent 60%), #0a0a0b; }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
-::selection { background: rgba(146,145,255,0.3); }
+::selection { background: rgba(59,130,246,0.3); }
 
-a { color: #9291ff; cursor: pointer; }
+a { color: #3b82f6; cursor: pointer; }
 a:hover { text-decoration: underline; }
 input, textarea, button { font-family: inherit; }
 .hidden { display: none !important; }
@@ -41,7 +41,7 @@ input, textarea, button { font-family: inherit; }
 .logo {
   font-size: 18px;
   font-weight: 700;
-  background: linear-gradient(135deg, #9291ff, #7c6cff);
+  background: linear-gradient(135deg, #3b82f6, #14b8a6);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -72,7 +72,7 @@ input, textarea, button { font-family: inherit; }
   font-size: 13px;
 }
 .sidebar-char:hover { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.8); }
-.sidebar-char.active { background: rgba(146,145,255,0.1); color: #9291ff; }
+.sidebar-char.active { background: rgba(59,130,246,0.1); color: #3b82f6; }
 .sidebar-char-avatar {
   width: 28px;
   height: 28px;
@@ -170,7 +170,7 @@ input, textarea, button { font-family: inherit; }
   outline: none;
   transition: border 0.2s;
 }
-.search-input:focus { border-color: #9291ff; }
+.search-input:focus { border-color: #3b82f6; }
 .search-input::placeholder { color: rgba(255,255,255,0.2); }
 .char-grid {
   display: flex;
@@ -192,8 +192,8 @@ input, textarea, button { font-family: inherit; }
   flex-shrink: 0;
   text-align: center;
 }
-.char-card:hover { border-color: rgba(146,145,255,0.3); transform: translateY(-2px); }
-.char-card.active { border-color: #9291ff; background: rgba(146,145,255,0.06); }
+.char-card:hover { border-color: rgba(59,130,246,0.3); transform: translateY(-2px); }
+.char-card.active { border-color: #3b82f6; background: rgba(59,130,246,0.06); }
 .char-card-avatar {
   width: 40px;
   height: 40px;
@@ -241,7 +241,7 @@ input, textarea, button { font-family: inherit; }
 }
 .msg.user {
   align-self: flex-end;
-  background: linear-gradient(135deg, #9291ff, #7c6cff);
+  background: linear-gradient(135deg, #3b82f6, #14b8a6);
   color: #fff;
   border-bottom-right-radius: 4px;
 }
@@ -265,7 +265,7 @@ input, textarea, button { font-family: inherit; }
   content: '|';
   animation: blink 0.7s step-end infinite;
   margin-left: 2px;
-  color: #9291ff;
+  color: #3b82f6;
 }
 @keyframes blink { 50% { opacity: 0; } }
 
@@ -289,7 +289,7 @@ input, textarea, button { font-family: inherit; }
   outline: none;
   transition: border 0.2s;
 }
-.chat-input:focus { border-color: #9291ff; }
+.chat-input:focus { border-color: #3b82f6; }
 .chat-input::placeholder { color: rgba(255,255,255,0.2); }
 
 .btn {
@@ -313,7 +313,7 @@ input, textarea, button { font-family: inherit; }
 }
 .btn-ghost:hover { background: rgba(255,255,255,0.1); color: #fff; }
 .btn-send {
-  background: linear-gradient(135deg, #9291ff, #7c6cff);
+  background: linear-gradient(135deg, #3b82f6, #14b8a6);
   color: #fff;
   width: 44px;
   height: 44px;
@@ -366,8 +366,8 @@ input, textarea, button { font-family: inherit; }
   cursor: pointer;
   transition: all 0.15s;
 }
-.history-item:hover { background: rgba(255,255,255,0.04); border-color: rgba(146,145,255,0.2); }
-.history-item.active { border-color: #9291ff; background: rgba(146,145,255,0.06); }
+.history-item:hover { background: rgba(255,255,255,0.04); border-color: rgba(59,130,246,0.2); }
+.history-item.active { border-color: #3b82f6; background: rgba(59,130,246,0.06); }
 .history-item-title { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
 .history-item-meta { font-size: 11px; color: rgba(255,255,255,0.3); }
 
@@ -386,9 +386,9 @@ input, textarea, button { font-family: inherit; }
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse at 20% 50%, rgba(146,145,255,0.06) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 20%, rgba(124,108,255,0.04) 0%, transparent 40%),
-    radial-gradient(ellipse at 50% 80%, rgba(146,145,255,0.03) 0%, transparent 40%);
+    radial-gradient(ellipse at 20% 50%, rgba(59,130,246,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(20,184,166,0.04) 0%, transparent 40%),
+    radial-gradient(ellipse at 50% 80%, rgba(59,130,246,0.03) 0%, transparent 40%);
   pointer-events: none;
 }
 .welcome-content {
@@ -425,7 +425,7 @@ input, textarea, button { font-family: inherit; }
   font-weight: 800;
   letter-spacing: -2px;
   line-height: 1.05;
-  background: linear-gradient(135deg, #fff 0%, #c4c4ff 50%, #9291ff 100%);
+  background: linear-gradient(135deg, #fff 0%, #67e8f9 50%, #3b82f6 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -461,16 +461,16 @@ input, textarea, button { font-family: inherit; }
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(146,145,255,0.04), transparent 60%);
+  background: linear-gradient(135deg, rgba(59,130,246,0.04), transparent 60%);
   opacity: 0;
   transition: opacity 0.25s ease;
   pointer-events: none;
 }
 .project-card:hover {
   background: rgba(255,255,255,0.04);
-  border-color: rgba(146,145,255,0.25);
+  border-color: rgba(59,130,246,0.25);
   transform: translateY(-3px);
-  box-shadow: 0 8px 40px rgba(0,0,0,0.3), 0 0 0 1px rgba(146,145,255,0.1);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.3), 0 0 0 1px rgba(59,130,246,0.1);
 }
 .project-card:hover::before { opacity: 1; }
 .project-card:active {
@@ -491,11 +491,11 @@ input, textarea, button { font-family: inherit; }
   height: 52px;
   min-width: 52px;
   border-radius: 14px;
-  background: linear-gradient(135deg, rgba(146,145,255,0.15), rgba(124,108,255,0.08));
+  background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(20,184,166,0.08));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #b4b3ff;
+  color: #60a5fa;
   flex-shrink: 0;
   position: relative;
   z-index: 1;
@@ -532,8 +532,8 @@ input, textarea, button { font-family: inherit; }
   font-weight: 500;
   padding: 4px 10px;
   border-radius: 6px;
-  background: rgba(146,145,255,0.1);
-  color: #b4b3ff;
+  background: rgba(59,130,246,0.1);
+  color: #60a5fa;
   letter-spacing: 0.2px;
 }
 .welcome-footer {
