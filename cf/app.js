@@ -267,7 +267,7 @@ function editUserMessage(id) {
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
 
-  const actionsEl = msgDiv.querySelector('.msg-actions');
+  const actionsEl = msgDiv && msgDiv.querySelector('.msg-actions');
   if (actionsEl) actionsEl.style.display = 'none';
 
   function exitEdit(newContent) {
@@ -329,7 +329,7 @@ function editAssistantMessage(id) {
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
 
-  const actionsEl = msgDiv.querySelector('.msg-actions');
+  const actionsEl = msgDiv && msgDiv.querySelector('.msg-actions');
   if (actionsEl) actionsEl.style.display = 'none';
 
   function exitEdit(newContent) {
