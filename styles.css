@@ -378,48 +378,64 @@ input, textarea, button { font-family: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40px 20px;
+  padding: 60px 24px;
   position: relative;
   overflow-y: auto;
 }
 .welcome-bg {
   position: fixed;
   inset: 0;
-  background: radial-gradient(ellipse at 50% 0%, rgba(146,145,255,0.08) 0%, transparent 50%),
-              radial-gradient(ellipse at 80% 80%, rgba(124,108,255,0.04) 0%, transparent 40%);
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(146,145,255,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(124,108,255,0.04) 0%, transparent 40%),
+    radial-gradient(ellipse at 50% 80%, rgba(146,145,255,0.03) 0%, transparent 40%);
   pointer-events: none;
 }
 .welcome-content {
   position: relative;
-  max-width: 700px;
+  max-width: 640px;
   width: 100%;
+  animation: fadeUp 0.6s ease;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .welcome-header {
   text-align: center;
-  margin-bottom: 48px;
+  margin-bottom: 56px;
 }
 .welcome-badge {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: rgba(255,255,255,0.2);
-  margin-bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  padding: 6px 14px;
+  border-radius: 20px;
+  margin-bottom: 20px;
+  letter-spacing: 0.3px;
+  backdrop-filter: blur(4px);
 }
 .welcome-header h1 {
-  font-size: clamp(32px, 6vw, 56px);
+  font-size: clamp(40px, 8vw, 72px);
   font-weight: 800;
-  letter-spacing: -1px;
-  background: linear-gradient(135deg, #e8e8ed 0%, #9291ff 100%);
+  letter-spacing: -2px;
+  line-height: 1.05;
+  background: linear-gradient(135deg, #fff 0%, #c4c4ff 50%, #9291ff 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 .welcome-sub {
-  font-size: 16px;
-  color: rgba(255,255,255,0.3);
+  font-size: clamp(15px, 2.5vw, 18px);
+  color: rgba(255,255,255,0.25);
+  font-weight: 400;
+  letter-spacing: 0.5px;
 }
 .project-grid {
   display: flex;
@@ -429,67 +445,103 @@ input, textarea, button { font-family: inherit; }
 .project-card {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
-  padding: 20px;
+  gap: 18px;
+  padding: 24px;
   background: rgba(255,255,255,0.02);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 14px;
+  border-radius: 16px;
   text-decoration: none;
   color: inherit;
-  transition: all 0.2s;
+  transition: all 0.25s ease;
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.project-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(146,145,255,0.04), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
 }
 .project-card:hover {
   background: rgba(255,255,255,0.04);
-  border-color: rgba(146,145,255,0.2);
-  transform: translateY(-2px);
+  border-color: rgba(146,145,255,0.25);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.3), 0 0 0 1px rgba(146,145,255,0.1);
 }
-.project-card-empty {
-  cursor: default;
-  opacity: 0.6;
+.project-card:hover::before { opacity: 1; }
+.project-card:active {
+  transform: translateY(-1px);
 }
+.project-card-empty { cursor: default; }
 .project-card-empty:hover {
   transform: none;
+  box-shadow: none;
   border-color: rgba(255,255,255,0.06);
   background: rgba(255,255,255,0.02);
 }
+.project-card-empty:hover::before { opacity: 0; }
+.empty-title { opacity: 0.3; font-weight: 500; }
+.empty-desc { opacity: 0.2; }
 .project-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(146,145,255,0.15), rgba(124,108,255,0.1));
+  width: 52px;
+  height: 52px;
+  min-width: 52px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(146,145,255,0.15), rgba(124,108,255,0.08));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #9291ff;
+  color: #b4b3ff;
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+.project-icon svg {
+  width: 26px;
+  height: 26px;
+}
+.project-info {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
 }
 .project-info h3 {
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 600;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
+  letter-spacing: -0.2px;
 }
 .project-info p {
-  font-size: 13px;
-  color: rgba(255,255,255,0.4);
-  line-height: 1.5;
-  margin-bottom: 8px;
+  font-size: 14px;
+  color: rgba(255,255,255,0.35);
+  line-height: 1.55;
+  margin-bottom: 10px;
+}
+.project-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .project-tag {
   display: inline-block;
   font-size: 11px;
-  padding: 3px 8px;
+  font-weight: 500;
+  padding: 4px 10px;
   border-radius: 6px;
   background: rgba(146,145,255,0.1);
-  color: #9291ff;
-  margin-right: 4px;
-  font-weight: 500;
+  color: #b4b3ff;
+  letter-spacing: 0.2px;
 }
 .welcome-footer {
   text-align: center;
-  margin-top: 48px;
+  margin-top: 60px;
   font-size: 13px;
-  color: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.12);
+  letter-spacing: 0.5px;
 }
 
 /* ── Responsive ── */
@@ -503,9 +555,13 @@ input, textarea, button { font-family: inherit; }
   .sidebar .sidebar-footer { flex-direction: column; }
   .btn-sidebar-action span { display: none; }
 
-  .welcome { padding: 24px 16px; }
-  .welcome-header { margin-bottom: 32px; }
-  .project-card { padding: 16px; }
-  .project-icon { width: 40px; height: 40px; }
+  .welcome-bg { opacity: 0.3; }
+  .welcome { padding: 32px 16px; }
+  .welcome-header { margin-bottom: 36px; }
+  .project-card { padding: 18px; gap: 14px; }
+  .project-icon { width: 44px; height: 44px; min-width: 44px; }
   .project-icon svg { width: 22px; height: 22px; }
+  .project-info h3 { font-size: 16px; }
+  .project-info p { font-size: 13px; }
+  .welcome-footer { margin-top: 40px; }
 }

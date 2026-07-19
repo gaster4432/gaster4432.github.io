@@ -24,18 +24,20 @@
         <div class="project-info">
           <h3>CF Chat</h3>
           <p>Chat with AI characters powered by Cloudflare Workers AI. Pure Vanilla Cookie, helpful assistant, and more.</p>
-          <span class="project-tag">AI</span>
-          <span class="project-tag">Chat</span>
+          <div class="project-tags">
+            <span class="project-tag">AI</span>
+            <span class="project-tag">Chat</span>
+          </div>
         </div>
       </a>
 
       <div class="project-card project-card-empty">
         <div class="project-icon">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </div>
         <div class="project-info">
-          <h3 style="opacity:0.3">More coming soon</h3>
-          <p style="opacity:0.2">This space is ready for your next project.</p>
+          <h3 class="empty-title">More coming soon</h3>
+          <p class="empty-desc">This space is ready for your next project.</p>
         </div>
       </div>
     </div>
@@ -46,10 +48,5 @@
   </div>
 </div>
 
-<script>
-if (window.innerWidth <= 768) {
-  document.querySelector('.welcome-bg').style.opacity = '0.3';
-}
-</script>
 </body>
 </html>
