@@ -59,7 +59,14 @@ function deleteChat(chatId) {
 }
 
 function getChatsForChar(charKey) {
-  return loadData().filter(c => c.character === charKey);
+  const chats = loadData().filter(c => c.character === charKey);
+  chats.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+  return chats;
+}
+
+function getMostRecentChat(charKey) {
+  const chats = getChatsForChar(charKey);
+  return chats.length > 0 ? chats[0] : null;
 }
 
 // ─── Characters ───
@@ -82,11 +89,16 @@ function saveCustomCharacters() {
 function renderSidebar() {
   charSidebarList.innerHTML = '';
   for (const [k, v] of Object.entries(characters)) {
+    const recent = getMostRecentChat(k);
     const item = document.createElement('div');
     item.className = 'sidebar-char' + (k === currentChar ? ' active' : '');
     const hasAvatar = v.avatar && v.avatar.startsWith('/');
+    const lastMsg = recent ? recent.title || 'Chat' : '';
     item.innerHTML = `<div class="sidebar-char-avatar">${hasAvatar ? `<img src="${v.avatar}">` : ''}</div>
-      <span>${escapeHtml(v.name)}</span>`;
+      <div class="sidebar-char-text">
+        <span class="sidebar-char-name">${escapeHtml(v.name)}</span>
+        ${lastMsg ? `<span class="sidebar-char-last">${escapeHtml(lastMsg.slice(0, 30))}</span>` : ''}
+      </div>`;
     item.onclick = () => selectCharacter(k);
     charSidebarList.appendChild(item);
   }
@@ -113,6 +125,12 @@ characterSearch.addEventListener('input', renderCharGrid);
 // ─── Select Character ───
 function selectCharacter(key) {
   currentChar = key;
+  const recent = getMostRecentChat(key);
+  if (recent) {
+    loadChatById(recent.id);
+    return;
+  }
+
   currentChatId = null;
   history = [];
   messagesEl.innerHTML = '';
