@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Bouncing Cat</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  height: 100%;
+  background: #0a0a0b;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: none;
+}
+#controls {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 16px;
+  background: rgba(0,0,0,0.6);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+#controls:hover { opacity: 1; }
+#controls button {
+  background: rgba(255,255,255,0.08);
+  border: none;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#controls button:hover { background: rgba(255,255,255,0.15); }
+#controls input { width: 80px; }
+#info {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  font-size: 12px;
+  color: rgba(255,255,255,0.15);
+  pointer-events: none;
+  text-align: center;
+}
+@media (max-width: 640px) {
+  #controls { flex-wrap: wrap; justify-content: center; max-width: 90%; bottom: 12px; }
+}
+</style>
+</head>
+<body>
+<div id="info">move mouse to show controls</div>
+<canvas id="canvas"></canvas>
+<div id="controls">
+  <button id="toggleBtn">Pause</button>
+  <button id="speedDown">−</button>
+  <input type="range" id="speedSlider" min="0.5" max="5" step="0.5" value="2">
+  <button id="speedUp">+</button>
+  <input type="text" id="emojiInput" value="🐱" style="width:40px;text-align:center;background:rgba(255,255,255,0.08);border:none;border-radius:6px;color:#fff;font-size:18px;padding:2px;">
+  <button id="sizeDown">−</button>
+  <input type="range" id="sizeSlider" min="20" max="100" step="2" value="48">
+  <button id="sizeUp">+</button>
+  <button id="trailToggle">Trail</button>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+let paused = false;
+let showTrail = false;
+let emoji = '🐱';
+let size = 48;
+
+let x, y, vx, vy;
+function reset() {
+  x = W / 2;
+  y = H / 2;
+  const speed = parseFloat(document.getElementById('speedSlider').value);
+  const angle = Math.random() * 2 * Math.PI;
+  vx = Math.cos(angle) * speed * 1.5;
+  vy = Math.sin(angle) * speed * 1.5;
+}
+reset();
+
+function bounce() {
+  if (paused) return;
+  x += vx;
+  y += vy;
+  if (x - size / 2 < 0) { x = size / 2; vx = -vx; }
+  if (x + size / 2 > W) { x = W - size / 2; vx = -vx; }
+  if (y - size / 2 < 0) { y = size / 2; vy = -vy; }
+  if (y + size / 2 > H) { y = H - size / 2; vy = -vy; }
+}
+
+function draw() {
+  if (!showTrail) {
+    ctx.clearRect(0, 0, W, H);
+  } else {
+    ctx.fillStyle = 'rgba(10,10,11,0.08)';
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.font = `${size}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, x, y);
+}
+
+function loop() {
+  bounce();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+
+// ─── Controls ───
+document.getElementById('toggleBtn').onclick = () => {
+  paused = !paused;
+  document.getElementById('toggleBtn').textContent = paused ? 'Play' : 'Pause';
+};
+
+const slider = document.getElementById('speedSlider');
+slider.oninput = () => {
+  const s = parseFloat(slider.value);
+  const angle = Math.atan2(vy, vx);
+  vx = Math.cos(angle) * s * 1.5;
+  vy = Math.sin(angle) * s * 1.5;
+};
+document.getElementById('speedUp').onclick = () => slider.value = Math.min(5, parseFloat(slider.value) + 0.5);
+document.getElementById('speedDown').onclick = () => slider.value = Math.max(0.5, parseFloat(slider.value) - 0.5);
+
+const sizeSlider = document.getElementById('sizeSlider');
+sizeSlider.oninput = () => { size = parseInt(sizeSlider.value); };
+document.getElementById('sizeUp').onclick = () => sizeSlider.value = Math.min(100, parseInt(sizeSlider.value) + 2);
+document.getElementById('sizeDown').onclick = () => sizeSlider.value = Math.max(20, parseInt(sizeSlider.value) - 2);
+
+document.getElementById('emojiInput').oninput = () => { emoji = document.getElementById('emojiInput').value || '🐱'; };
+
+document.getElementById('trailToggle').onclick = () => {
+  showTrail = !showTrail;
+  document.getElementById('trailToggle').textContent = showTrail ? 'Trail ON' : 'Trail';
+  if (!showTrail) ctx.clearRect(0, 0, W, H);
+};
+
+// Double-click to restart
+canvas.ondblclick = reset;
+
+// Hide controls after inactivity
+let hideTimer;
+document.onmousemove = () => {
+  document.getElementById('controls').style.opacity = '1';
+  document.getElementById('info').style.opacity = '0';
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    if (!document.getElementById('controls').matches(':hover'))
+      document.getElementById('controls').style.opacity = '0';
+  }, 3000);
+};
+</script>
+</body>
+</html>
