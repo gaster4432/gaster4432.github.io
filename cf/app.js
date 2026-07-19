@@ -243,8 +243,10 @@ function editUserMessage(id) {
   if (sending) return;
   const idx = history.findIndex(m => m._id === id);
   if (idx === -1) return;
-  const el = messagesEl.querySelector(`[data-msg-id="${id}"] .msg-text`);
-  if (!el) return;
+  const msgDiv = messagesEl.querySelector(`[data-msg-id="${id}"]`);
+  if (!msgDiv) return;
+  const textEl = msgDiv.querySelector('.msg-text');
+  if (!textEl) return;
 
   const current = history[idx].content;
   const container = document.createElement('div');
@@ -254,8 +256,6 @@ function editUserMessage(id) {
   input.className = 'msg-edit-input';
   input.value = current;
   input.style.minHeight = '40px';
-  input.style.height = Math.max(40, el.offsetHeight) + 'px';
-  input.oninput = function() { this.style.height = 'auto'; this.style.height = Math.max(40, this.scrollHeight) + 'px'; };
 
   const saveBtn = document.createElement('button');
   saveBtn.className = 'msg-edit-save-btn';
@@ -263,33 +263,32 @@ function editUserMessage(id) {
 
   container.appendChild(input);
   container.appendChild(saveBtn);
-  el.replaceWith(container);
+  textEl.replaceWith(container);
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
 
-  const actionsEl = el.parentElement.querySelector('.msg-actions');
+  const actionsEl = msgDiv.querySelector('.msg-actions');
   if (actionsEl) actionsEl.style.display = 'none';
 
-  function cancelEdit() {
-    container.replaceWith(el);
+  function exitEdit(newContent) {
+    const span = document.createElement('span');
+    span.className = 'msg-text';
+    span.textContent = newContent;
+    container.replaceWith(span);
     if (actionsEl) actionsEl.style.display = '';
   }
 
   saveBtn.onclick = async () => {
     const newText = input.value.trim();
-    if (!newText || newText === current) { cancelEdit(); return; }
+    if (!newText || newText === current) { exitEdit(current); return; }
     history[idx].content = newText;
-    const updatedMsg = document.createElement('span');
-    updatedMsg.className = 'msg-text';
-    updatedMsg.textContent = newText;
-    container.replaceWith(updatedMsg);
-    if (actionsEl) actionsEl.style.display = '';
+    exitEdit(newText);
 
     const assistIdx = findNextAssistant(idx);
     if (assistIdx !== -1) {
       const oldId = history[assistIdx]._id;
-      const el2 = messagesEl.querySelector(`[data-msg-id="${oldId}"]`);
-      if (el2) el2.remove();
+      const oldEl = messagesEl.querySelector(`[data-msg-id="${oldId}"]`);
+      if (oldEl) oldEl.remove();
       history.splice(assistIdx, 1);
     }
     await regenerateAfter(idx);
@@ -297,7 +296,7 @@ function editUserMessage(id) {
 
   input.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveBtn.click(); }
-    if (e.key === 'Escape') { cancelEdit(); }
+    if (e.key === 'Escape') { exitEdit(current); }
   });
 }
 
@@ -306,8 +305,10 @@ function editAssistantMessage(id) {
   if (sending) return;
   const idx = history.findIndex(m => m._id === id);
   if (idx === -1) return;
-  const el = messagesEl.querySelector(`[data-msg-id="${id}"] .msg-text`);
-  if (!el) return;
+  const msgDiv = messagesEl.querySelector(`[data-msg-id="${id}"]`);
+  if (!msgDiv) return;
+  const textEl = msgDiv.querySelector('.msg-text');
+  if (!textEl) return;
 
   const current = history[idx].content;
   const container = document.createElement('div');
@@ -317,7 +318,6 @@ function editAssistantMessage(id) {
   input.className = 'msg-edit-input';
   input.value = current;
   input.style.minHeight = '40px';
-  input.oninput = function() { this.style.height = 'auto'; this.style.height = Math.max(40, this.scrollHeight) + 'px'; };
 
   const saveBtn = document.createElement('button');
   saveBtn.className = 'msg-edit-save-btn';
@@ -325,37 +325,35 @@ function editAssistantMessage(id) {
 
   container.appendChild(input);
   container.appendChild(saveBtn);
-  el.replaceWith(container);
+  textEl.replaceWith(container);
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
 
-  const actionsEl = el.parentElement.querySelector('.msg-actions');
+  const actionsEl = msgDiv.querySelector('.msg-actions');
   if (actionsEl) actionsEl.style.display = 'none';
 
-  function cancelEdit() {
-    container.replaceWith(el);
+  function exitEdit(newContent) {
+    const span = document.createElement('span');
+    span.className = 'msg-text';
+    span.textContent = newContent;
+    container.replaceWith(span);
     if (actionsEl) actionsEl.style.display = '';
   }
 
   saveBtn.onclick = () => {
     const newText = input.value.trim();
-    if (!newText) return;
+    if (!newText) { exitEdit(current); return; }
     history[idx].content = newText;
-    if (!history[idx]._versions) history[idx]._versions = [newText];
-    else if (!history[idx]._versions.includes(newText)) history[idx]._versions.push(newText);
+    if (!history[idx]._versions) history[idx]._versions = [];
+    if (!history[idx]._versions.includes(newText)) history[idx]._versions.push(newText);
     history[idx]._currentVersion = history[idx]._versions.length - 1;
-
-    const updatedMsg = document.createElement('span');
-    updatedMsg.className = 'msg-text';
-    updatedMsg.textContent = newText;
-    container.replaceWith(updatedMsg);
-    if (actionsEl) actionsEl.style.display = '';
+    exitEdit(newText);
     updateVersionLabel(id);
     saveCurrentChat();
   };
 
   input.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') { cancelEdit(); }
+    if (e.key === 'Escape') { exitEdit(current); }
   });
 }
 
