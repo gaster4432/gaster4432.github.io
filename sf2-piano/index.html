@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>SF2 Piano</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; background: #0a0a0b; color: #e2e8f0; font-family: system-ui, sans-serif; overflow: hidden; }
+#app { display: flex; flex-direction: column; height: 100%; }
+
+header { text-align: center; padding: 16px 20px; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
+header h1 { font-size: 20px; font-weight: 600; background: linear-gradient(135deg, #3b82f6, #14b8a6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+header p { font-size: 13px; color: rgba(255,255,255,0.3); margin-top: 2px; }
+
+#controls { display: flex; gap: 10px; padding: 10px 20px; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
+#controls label { font-size: 12px; color: rgba(255,255,255,0.4); }
+#status { font-size: 12px; color: rgba(255,255,255,0.25); flex: 1; text-align: right; }
+input[type="file"] { display: none; }
+.btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #e2e8f0; padding: 6px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.15s; }
+.btn:hover { background: rgba(255,255,255,0.12); }
+.btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+.btn-primary:hover { background: #2563eb; }
+.btn-primary:disabled { opacity: 0.3; cursor: default; }
+select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #e2e8f0; padding: 5px 10px; border-radius: 8px; font-size: 13px; }
+.volume-wrap { display: flex; align-items: center; gap: 6px; }
+.volume-wrap input[type="range"] { width: 60px; accent-color: #3b82f6; }
+
+#dropZone { flex: 1; display: flex; align-items: center; justify-content: center; }
+.drop-box { border: 2px dashed rgba(255,255,255,0.1); border-radius: 16px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; max-width: 360px; }
+.drop-box:hover, .drop-box.dragover { border-color: #3b82f6; background: rgba(59,130,246,0.05); }
+.drop-box .icon { font-size: 40px; margin-bottom: 10px; }
+.drop-box h2 { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+.drop-box p { font-size: 13px; color: rgba(255,255,255,0.3); }
+
+#pianoWrap { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+#pianoInfo { text-align: center; padding: 8px; font-size: 12px; color: rgba(255,255,255,0.2); flex-shrink: 0; }
+#pianoContainer { flex: 1; display: flex; align-items: flex-end; justify-content: center; padding: 0 20px 20px; overflow-x: auto; }
+#piano { display: flex; position: relative; height: 200px; touch-action: none; }
+.white-key { width: 44px; height: 200px; background: #e8e8e8; border: 1px solid #bbb; border-radius: 0 0 6px 6px; cursor: pointer; position: relative; transition: background 0.05s; flex-shrink: 0; }
+.white-key:active, .white-key.active { background: #c8c8c8; }
+.white-key .label { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-size: 10px; color: rgba(0,0,0,0.25); pointer-events: none; }
+.black-key-wrap { position: absolute; top: 0; pointer-events: none; }
+.black-key { width: 28px; height: 120px; background: #1a1a1a; border: 1px solid #000; border-radius: 0 0 4px 4px; cursor: pointer; pointer-events: auto; transition: background 0.05s; }
+.black-key:active, .black-key.active { background: #333; }
+.key-highlight { box-shadow: inset 0 0 0 2px #3b82f6; }
+
+#loading { position: fixed; inset: 0; background: rgba(10,10,11,0.85); display: none; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); }
+#loading .spinner { width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.08); border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#loading .text { font-size: 14px; color: rgba(255,255,255,0.4); }
+#loading div { text-align: center; }
+
+@media (max-width: 640px) {
+  header { padding: 12px 16px; }
+  header h1 { font-size: 17px; }
+  #controls { padding: 8px 12px; gap: 6px; }
+  .white-key { width: 36px; height: 160px; }
+  .black-key { width: 22px; height: 96px; }
+  #pianoContainer { padding: 0 10px 12px; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>SF2 Piano</h1>
+    <p>upload a SoundFont (.sf2) and play</p>
+  </header>
+
+  <div id="controls">
+    <button class="btn" id="uploadBtn">Upload SF2</button>
+    <input type="file" id="fileInput" accept=".sf2,.sf3">
+    <span id="sfName" style="font-size:12px;color:rgba(255,255,255,0.3)"></span>
+    <div class="volume-wrap">
+      <label>Vol</label>
+      <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.7">
+    </div>
+    <select id="presetSelect" disabled style="display:none">
+      <option value="0,0">Acoustic Grand Piano</option>
+    </select>
+    <span id="status"></span>
+  </div>
+
+  <div id="dropZone">
+    <div class="drop-box" id="dropBox">
+      <div class="icon">🎹</div>
+      <h2>Drop a .sf2 file here</h2>
+      <p>or click to browse</p>
+    </div>
+  </div>
+
+  <div id="pianoWrap">
+    <div id="pianoInfo">click keys or use keyboard · <span id="keyHint">Z-M / Q-U</span></div>
+    <div id="pianoContainer"><div id="piano"></div></div>
+  </div>
+</div>
+
+<div id="loading"><div><div class="spinner"></div><div class="text" id="loadingText">Loading SoundFont...</div></div></div>
+
+<script>
+// ─── Piano note definitions ───
+const NOTES = [
+  { note: 48, name: 'C3' }, { note: 49, name: 'C#3' }, { note: 50, name: 'D3' }, { note: 51, name: 'D#3' },
+  { note: 52, name: 'E3' }, { note: 53, name: 'F3' }, { note: 54, name: 'F#3' }, { note: 55, name: 'G3' },
+  { note: 56, name: 'G#3' }, { note: 57, name: 'A3' }, { note: 58, name: 'A#3' }, { note: 59, name: 'B3' },
+  { note: 60, name: 'C4' }, { note: 61, name: 'C#4' }, { note: 62, name: 'D4' }, { note: 63, name: 'D#4' },
+  { note: 64, name: 'E4' }, { note: 65, name: 'F4' }, { note: 66, name: 'F#4' }, { note: 67, name: 'G4' },
+  { note: 68, name: 'G#4' }, { note: 69, name: 'A4' }, { note: 70, name: 'A#4' }, { note: 71, name: 'B4' },
+  { note: 72, name: 'C5' }, { note: 73, name: 'C#5' }, { note: 74, name: 'D5' }, { note: 75, name: 'D#5' },
+  { note: 76, name: 'E5' }, { note: 77, name: 'F5' }, { note: 78, name: 'F#5' }, { note: 79, name: 'G5' },
+  { note: 80, name: 'G#5' }, { note: 81, name: 'A5' }, { note: 82, name: 'A#5' }, { note: 83, name: 'B5' },
+  { note: 84, name: 'C6' },
+];
+
+const BLACK_SET = new Set([49, 51, 54, 56, 58, 61, 63, 66, 68, 70, 73, 75, 78, 80, 82]);
+
+// Keyboard mapping (lower row Z-M, upper row Q-U, plus ,. for C#6/D#6)
+const KEY_MAP = {
+  'z': 48, 's': 49, 'x': 50, 'd': 51, 'c': 52, 'v': 53, 'g': 54, 'b': 55, 'h': 56, 'n': 57, 'j': 58, 'm': 59,
+  'q': 60, '2': 61, 'w': 62, '3': 63, 'e': 64, 'r': 65, '5': 66, 't': 67, '6': 68, 'y': 69, '7': 70, 'u': 71,
+  'i': 72, '9': 73, 'o': 74, '0': 75, 'p': 76,
+};
+const KEY_HINT = 'Z-M / Q-U / 2,3,5,6,7,9,0 for black keys';
+
+// ─── Setup ───
+let synth = null;
+let audioContext = null;
+let loaded = false;
+let activeNotes = new Set();
+let sfData = null;
+let sfId = null;
+
+const $ = id => document.getElementById(id);
+
+// ─── Piano UI ───
+function buildPiano() {
+  const piano = $('piano');
+  piano.innerHTML = '';
+  const whiteKeys = [];
+  for (const n of NOTES) {
+    if (BLACK_SET.has(n.note)) continue;
+    const el = document.createElement('div');
+    el.className = 'white-key';
+    el.dataset.note = n.note;
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = n.name;
+    el.appendChild(label);
+    piano.appendChild(el);
+    whiteKeys.push({ el, note: n.note });
+  }
+
+  // Place black keys
+  let whiteIdx = 0;
+  for (let i = 0; i < NOTES.length; i++) {
+    const n = NOTES[i];
+    if (!BLACK_SET.has(n.note)) { whiteIdx++; continue; }
+    // Find the white key before this black key
+    let prevWhiteIdx = -1;
+    for (let j = i - 1; j >= 0; j--) {
+      if (!BLACK_SET.has(NOTES[j].note)) {
+        const wn = NOTES[j].note;
+        prevWhiteIdx = whiteKeys.findIndex(w => w.note === wn);
+        break;
+      }
+    }
+    if (prevWhiteIdx < 0) continue;
+    const wk = whiteKeys[prevWhiteIdx];
+    const wrap = document.createElement('div');
+    wrap.className = 'black-key-wrap';
+    const wRect = wk.el.getBoundingClientRect();
+    const pRect = piano.getBoundingClientRect();
+    // Position using the white key's offset within the piano
+    wrap.style.left = (wk.el.offsetLeft + wk.el.offsetWidth - 14) + 'px';
+    const bk = document.createElement('div');
+    bk.className = 'black-key';
+    bk.dataset.note = n.note;
+    wrap.appendChild(bk);
+    piano.appendChild(wrap);
+  }
+
+  // Event listeners
+  piano.querySelectorAll('.white-key, .black-key').forEach(el => {
+    el.addEventListener('mousedown', e => { e.preventDefault(); noteOn(parseInt(el.dataset.note)); });
+    el.addEventListener('mouseup', () => noteOff(parseInt(el.dataset.note)));
+    el.addEventListener('mouseleave', () => {
+      if (el.classList.contains('active')) noteOff(parseInt(el.dataset.note));
+    });
+    el.addEventListener('touchstart', e => { e.preventDefault(); noteOn(parseInt(el.dataset.note)); }, { passive: false });
+    el.addEventListener('touchend', e => { e.preventDefault(); noteOff(parseInt(el.dataset.note)); }, { passive: false });
+    el.addEventListener('touchcancel', () => noteOff(parseInt(el.dataset.note)));
+  });
+}
+
+function noteOn(midi) {
+  if (!loaded || !synth) return;
+  if (activeNotes.has(midi)) return;
+  activeNotes.add(midi);
+  const el = piano.querySelector(`[data-note="${midi}"]`);
+  if (el) el.classList.add('active');
+  try { synth.noteOn(0, midi, 100); } catch(e) {}
+}
+
+function noteOff(midi) {
+  if (!synth) return;
+  if (!activeNotes.has(midi)) return;
+  activeNotes.delete(midi);
+  const el = piano.querySelector(`[data-note="${midi}"]`);
+  if (el) el.classList.remove('active');
+  try { synth.noteOff(0, midi); } catch(e) {}
+}
+
+// ─── Keyboard ───
+document.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); return; }
+  if (k in KEY_MAP) { noteOn(KEY_MAP[k]); e.preventDefault(); }
+});
+document.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if (k in KEY_MAP) { noteOff(KEY_MAP[k]); e.preventDefault(); }
+});
+
+$('keyHint').textContent = KEY_HINT;
+
+// ─── Volume ───
+$('volumeSlider').oninput = () => {
+  if (audioContext) audioContext.gainNode.gain.value = parseFloat($('volumeSlider').value);
+};
+
+// ─── Load SF2 ───
+function showLoading(text) { $('loading').style.display = 'flex'; $('loadingText').textContent = text; }
+function hideLoading() { $('loading').style.display = 'none'; }
+
+async function loadSF2(buffer, name) {
+  showLoading('Loading SoundFont...');
+  try {
+    if (!audioContext) {
+      audioContext = new AudioContext();
+      audioContext.gainNode = audioContext.createGain();
+      audioContext.gainNode.gain.value = parseFloat($('volumeSlider').value);
+      audioContext.gainNode.connect(audioContext.destination);
+    }
+    if (audioContext.state === 'suspended') await audioContext.resume();
+
+    if (!synth) {
+      synth = new JSSynth.Synthesizer();
+      synth.init(audioContext.sampleRate);
+      const node = synth.createAudioNode(audioContext, 4096);
+      node.connect(audioContext.gainNode);
+    }
+
+    showLoading('Parsing SoundFont...');
+    if (sfId !== null) { try { synth.unloadSFont(sfId); } catch(e) {} }
+    sfData = buffer;
+    sfId = await synth.loadSFont(buffer);
+
+    loaded = true;
+    $('sfName').textContent = name || 'unnamed.sf2';
+    $('dropZone').style.display = 'none';
+    $('pianoWrap').style.display = 'flex';
+
+    // Select first preset (Acoustic Grand Piano)
+    synth.selectProgram(sfId, 0, 0, 0);
+  } catch (e) {
+    $('status').textContent = 'Error: ' + e.message;
+  } finally {
+    hideLoading();
+  }
+}
+
+// ─── File upload ───
+$('uploadBtn').onclick = () => $('fileInput').click();
+$('fileInput').onchange = async () => {
+  const file = $('fileInput').files[0];
+  if (!file) return;
+  const buf = await file.arrayBuffer();
+  loadSF2(buf, file.name);
+};
+
+// Drag and drop
+const dropBox = $('dropBox');
+dropBox.onclick = () => $('fileInput').click();
+dropBox.ondragover = e => { e.preventDefault(); dropBox.classList.add('dragover'); };
+dropBox.ondragleave = () => dropBox.classList.remove('dragover');
+dropBox.ondrop = async e => {
+  e.preventDefault();
+  dropBox.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const buf = await file.arrayBuffer();
+  loadSF2(buf, file.name);
+};
+
+// ─── Initialize piano ───
+buildPiano();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/js-synthesizer@1.13.0/externals/libfluidsynth-2.4.6.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/js-synthesizer@1.13.0/dist/js-synthesizer.min.js"></script>
+<script>
+JSSynth.waitForReady().then(() => {
+  $('status').textContent = 'ready — drop a .sf2 file to start';
+});
+</script>
+</body>
+</html>
