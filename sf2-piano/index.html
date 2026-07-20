@@ -302,8 +302,16 @@ buildPiano();
 <script src="https://cdn.jsdelivr.net/npm/js-synthesizer@1.13.0/externals/libfluidsynth-2.4.6.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/js-synthesizer@1.13.0/dist/js-synthesizer.min.js"></script>
 <script>
-JSSynth.waitForReady().then(() => {
-  $('status').textContent = 'ready — drop a .sf2 file to start';
+JSSynth.waitForReady().then(async () => {
+  $('status').textContent = 'loading built-in NES SoundFont...';
+  try {
+    const resp = await fetch('nes-soundfont.sf2');
+    const buf = await resp.arrayBuffer();
+    await loadSF2(buf, 'NES Soundfont');
+    $('status').textContent = 'NES SoundFont loaded — upload any .sf2 to switch';
+  } catch (e) {
+    $('status').textContent = 'auto-load failed — drop a .sf2 file to start';
+  }
 });
 </script>
 </body>
