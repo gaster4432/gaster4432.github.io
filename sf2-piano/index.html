@@ -200,7 +200,7 @@ function noteOn(midi) {
   activeNotes.add(midi);
   const el = piano.querySelector(`[data-note="${midi}"]`);
   if (el) el.classList.add('active');
-  try { synth.noteOn(0, midi, 100); } catch(e) {}
+  try { synth.midiNoteOn(0, midi, 100); } catch(e) {}
 }
 
 function noteOff(midi) {
@@ -209,7 +209,7 @@ function noteOff(midi) {
   activeNotes.delete(midi);
   const el = piano.querySelector(`[data-note="${midi}"]`);
   if (el) el.classList.remove('active');
-  try { synth.noteOff(0, midi); } catch(e) {}
+  try { synth.midiNoteOff(0, midi); } catch(e) {}
 }
 
 // ─── Keyboard ───
@@ -264,7 +264,7 @@ async function loadSF2(buffer, name) {
     $('pianoWrap').style.display = 'flex';
 
     // Select first preset (Acoustic Grand Piano)
-    synth.selectProgram(sfId, 0, 0, 0);
+    synth.midiProgramSelect(0, sfId, 0, 0);
   } catch (e) {
     $('status').textContent = 'Error: ' + e.message;
   } finally {
