@@ -142,8 +142,8 @@ function update() {
     if (b.x + b.size / 2 > W) { b.x = W - b.size / 2; b.vx = -b.vx; hit = true; }
     if (b.y - b.size / 2 < 0) { b.y = b.size / 2; b.vy = -b.vy; hit = true; }
     if (b.y + b.size / 2 > H) { b.y = H - b.size / 2; b.vy = -b.vy; hit = true; }
-    if (hit
-const angle = Math.random() * 2 * Math.PI;
+    if (hit) {
+      const angle = Math.random() * 2 * Math.PI;
       newBalls.push(createBall(b.x, b.y, Math.cos(angle) * speed, Math.sin(angle) * speed, baseSize));
     }
   }
