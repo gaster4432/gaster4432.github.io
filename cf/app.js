@@ -142,7 +142,15 @@ function selectCharacter(key) {
 }
 
 function renderMsgContent(text) {
-  return escapeHtml(text);
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  return parts.map(p => {
+    if (!p.startsWith('```')) return escapeHtml(p).replace(/\n/g, '<br>');
+    const inner = p.slice(3, -3);
+    const nl = inner.indexOf('\n');
+    let lang = '', code = inner;
+    if (nl > -1) { lang = escapeHtml(inner.slice(0, nl).trim()); code = inner.slice(nl + 1); }
+    return `<pre><code${lang ? ' class="language-'+lang+'"' : ''}>${escapeHtml(code)}</code></pre>`;
+  }).join('');
 }
 
 function addMessage(role, content, id, isGreeting) {
