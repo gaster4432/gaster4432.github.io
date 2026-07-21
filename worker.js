@@ -49,7 +49,10 @@ export default {
 
         if (resp.ok) {
           const buffer = await resp.arrayBuffer();
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          const bytes = new Uint8Array(buffer);
+          let binary = '';
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          const base64 = btoa(binary);
           return json({ image: `data:image/png;base64,${base64}` });
         }
       } catch (e) {}

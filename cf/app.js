@@ -172,20 +172,28 @@ async function processImageGens(root) {
       continue;
     }
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 45000);
       const res = await fetch(`${WORKER_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ character: { name: 'ai' }, generateImage: prompt }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       if (res.ok) {
         const data = await res.json();
         if (data.image) {
           sessionStorage.setItem('img_cache_' + prompt, data.image);
           statusEl.outerHTML = `<img class="msg-img" src="${data.image}" alt="generated image">`;
+        } else {
+          statusEl.textContent = 'image: ' + (data.error || 'failed');
         }
+      } else {
+        statusEl.textContent = 'image failed (' + res.status + ')';
       }
     } catch(e) {
-      statusEl.textContent = 'image failed';
+      statusEl.textContent = e.name === 'AbortError' ? 'timed out' : 'image error';
     }
   }
 }
