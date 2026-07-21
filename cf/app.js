@@ -1,17 +1,13 @@
-// ═══════════════════════════════════════════
-//  SET YOUR WORKER URL HERE
-// ═══════════════════════════════════════════
 const WORKER_URL = 'https://lucky-band-5c81.archlinuxkid99.workers.dev';
 
-// ─── State ───
 let characters = {};
 let currentChar = null;
 let currentChatId = null;
 let history = [];
 let sending = false;
 let msgCounter = 0;
+let imageData = null;
 
-// ─── DOM ───
 const $ = id => document.getElementById(id);
 const messagesEl = $('messages');
 const chatInput = $('chatInput');
@@ -26,6 +22,11 @@ const charPicker = $('charPicker');
 const charSidebarList = $('charSidebarList');
 const characterGrid = $('characterGrid');
 const characterSearch = $('characterSearch');
+const imageInput = $('imageInput');
+const imageUploadBtn = $('imageUploadBtn');
+const imagePreview = $('imagePreview');
+const previewImg = $('previewImg');
+const clearImageBtn = $('clearImageBtn');
 
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -33,7 +34,6 @@ function escapeHtml(s) {
 
 function uid() { return 'm' + (++msgCounter) + '_' + Date.now(); }
 
-// ─── Storage ───
 function loadData() {
   const stored = localStorage.getItem('cf_chat_chats');
   return stored ? JSON.parse(stored) : [];
@@ -72,14 +72,12 @@ function getMostRecentChat(charKey) {
   return chats.length > 0 ? chats[0] : null;
 }
 
-// ─── Characters ───
 function initCharacters() {
   const stored = localStorage.getItem('cf_chat_custom_chars');
   const custom = stored ? JSON.parse(stored) : {};
   characters = { ...DEFAULT_CHARACTERS, ...custom };
 }
 
-// ─── UI: Sidebar ───
 function renderSidebar() {
   charSidebarList.innerHTML = '';
   for (const [k, v] of Object.entries(characters)) {
@@ -97,7 +95,6 @@ function renderSidebar() {
   }
 }
 
-// ─── UI: Character Grid ───
 function renderCharGrid() {
   characterGrid.innerHTML = '';
   const q = (characterSearch?.value || '').toLowerCase();
@@ -115,7 +112,6 @@ function renderCharGrid() {
 
 characterSearch.addEventListener('input', renderCharGrid);
 
-// ─── Select Character ───
 function selectCharacter(key) {
   currentChar = key;
   const recent = getMostRecentChat(key);
@@ -144,7 +140,56 @@ function selectCharacter(key) {
   renderHistoryPanel();
 }
 
-// ─── Message Rendering ───
+function renderMsgContent(text) {
+  const parts = text.split(/(!\[img\]\([^)]+\))/g);
+  let html = '';
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part) continue;
+    const m = part.match(/^!\[img\]\(([^)]+)\)$/);
+    if (m) {
+      const prompt = m[1];
+      const genId = 'gen_' + uid();
+      html += `<span class="gen-img" data-gen-prompt="${escapeHtml(prompt)}" data-gen-id="${genId}">`;
+      html += `<span class="msg-img loading" id="${genId}">🎨 generating...</span></span>`;
+    } else {
+      html += escapeHtml(part);
+    }
+  }
+  return html;
+}
+
+async function processImageGens(root) {
+  const containers = root ? root.querySelectorAll('.gen-img') : document.querySelectorAll('.gen-img');
+  for (const el of containers) {
+    const prompt = el.dataset.genPrompt;
+    const genId = el.dataset.genId;
+    if (!prompt || !genId) continue;
+    const statusEl = document.getElementById(genId);
+    if (!statusEl) continue;
+    if (sessionStorage.getItem('img_cache_' + prompt)) {
+      statusEl.outerHTML = `<img class="msg-img" src="${sessionStorage.getItem('img_cache_' + prompt)}" alt="generated image">`;
+      continue;
+    }
+    try {
+      const res = await fetch(`${WORKER_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ character: { name: 'ai' }, generateImage: prompt }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.image) {
+          sessionStorage.setItem('img_cache_' + prompt, data.image);
+          statusEl.outerHTML = `<img class="msg-img" src="${data.image}" alt="generated image">`;
+        }
+      }
+    } catch(e) {
+      statusEl.textContent = 'image failed';
+    }
+  }
+}
+
 function addMessage(role, content, id, isGreeting) {
   id = id || uid();
   const div = document.createElement('div');
@@ -152,7 +197,7 @@ function addMessage(role, content, id, isGreeting) {
   div.dataset.msgId = id;
   const contentSpan = document.createElement('span');
   contentSpan.className = 'msg-text';
-  contentSpan.textContent = content;
+  contentSpan.innerHTML = renderMsgContent(content);
   div.appendChild(contentSpan);
 
   const actions = document.createElement('div');
@@ -206,6 +251,7 @@ function addMessage(role, content, id, isGreeting) {
   div.appendChild(actions);
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  setTimeout(() => processImageGens(div), 50);
   return div;
 }
 
@@ -223,7 +269,7 @@ function updateMsgText(id, content) {
   const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
   if (el) {
     const textSpan = el.querySelector('.msg-text');
-    if (textSpan) textSpan.textContent = content;
+    if (textSpan) textSpan.innerHTML = renderMsgContent(content);
   }
 }
 
@@ -238,7 +284,6 @@ function updateVersionLabel(id) {
   }
 }
 
-// ─── Edit User Message ───
 function editUserMessage(id) {
   if (sending) return;
   const idx = history.findIndex(m => m._id === id);
@@ -273,7 +318,7 @@ function editUserMessage(id) {
   function exitEdit(newContent) {
     const span = document.createElement('span');
     span.className = 'msg-text';
-    span.textContent = newContent;
+    span.innerHTML = renderMsgContent(newContent);
     container.replaceWith(span);
     if (actionsEl) actionsEl.style.display = '';
   }
@@ -300,7 +345,6 @@ function editUserMessage(id) {
   });
 }
 
-// ─── Edit Assistant Message ───
 function editAssistantMessage(id) {
   if (sending) return;
   const idx = history.findIndex(m => m._id === id);
@@ -335,7 +379,7 @@ function editAssistantMessage(id) {
   function exitEdit(newContent) {
     const span = document.createElement('span');
     span.className = 'msg-text';
-    span.textContent = newContent;
+    span.innerHTML = renderMsgContent(newContent);
     container.replaceWith(span);
     if (actionsEl) actionsEl.style.display = '';
   }
@@ -357,7 +401,6 @@ function editAssistantMessage(id) {
   });
 }
 
-// ─── Regenerate ───
 function findPrevUser(idx) {
   for (let i = idx - 1; i >= 0; i--) {
     if (history[i].role === 'user') return i;
@@ -383,40 +426,26 @@ function buildSendHistory(upToIdx) {
   return result;
 }
 
-async function regenerateResponse(id) {
-  if (sending) return;
-  const assistIdx = history.findIndex(m => m._id === id);
-  if (assistIdx === -1) return;
-  const userIdx = findPrevUser(assistIdx);
-  if (userIdx === -1) return;
-
-  const oldContent = history[assistIdx].content;
-  if (!history[assistIdx]._versions) history[assistIdx]._versions = [oldContent];
-  else if (!history[assistIdx]._versions.includes(oldContent)) history[assistIdx]._versions.push(oldContent);
-  history[assistIdx]._currentVersion = history[assistIdx]._versions.length;
-
-  const msg = history[userIdx].content;
-  const sendHistory = buildSendHistory(userIdx);
+function makeSendBody(msg, sendHistory, withImage) {
   const char = characters[currentChar];
-
-  const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
-  if (el) {
-    el.querySelector('.msg-text').textContent = '';
-    el.querySelector('.msg-text').classList.add('streaming');
+  const body = {
+    message: msg,
+    character: { name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
+    history: sendHistory,
+  };
+  if (withImage && imageData) {
+    body.image = imageData;
   }
+  return body;
+}
 
-  sending = true;
+async function streamResponse(assistId, body) {
   let full = '';
-
   try {
     const res = await fetch(`${WORKER_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: msg,
-        character: { name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
-        history: sendHistory,
-      }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error('Request failed');
     const reader = res.body.getReader();
@@ -432,17 +461,44 @@ async function regenerateResponse(id) {
           const chunk = JSON.parse(line.slice(6));
           if (chunk.content) {
             full += chunk.content;
-            updateMsgText(id, full);
+            updateMsgText(assistId, full);
             messagesEl.scrollTop = messagesEl.scrollHeight;
           }
         } catch {}
       }
     }
   } catch (e) {
-    full = oldContent;
+    full = 'Error: ' + e.message;
+  }
+  return full;
+}
+
+async function regenerateResponse(id) {
+  if (sending) return;
+  const assistIdx = history.findIndex(m => m._id === id);
+  if (assistIdx === -1) return;
+  const userIdx = findPrevUser(assistIdx);
+  if (userIdx === -1) return;
+
+  const oldContent = history[assistIdx].content;
+  if (!history[assistIdx]._versions) history[assistIdx]._versions = [oldContent];
+  else if (!history[assistIdx]._versions.includes(oldContent)) history[assistIdx]._versions.push(oldContent);
+  history[assistIdx]._currentVersion = history[assistIdx]._versions.length;
+
+  const msg = history[userIdx].content;
+  const sendHistory = buildSendHistory(userIdx);
+
+  const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
+  if (el) {
+    el.querySelector('.msg-text').innerHTML = '';
+    el.querySelector('.msg-text').classList.add('streaming');
   }
 
+  sending = true;
+  const body = makeSendBody(msg, sendHistory, false);
+  const full = await streamResponse(id, body);
   sending = false;
+
   history[assistIdx].content = full || oldContent;
   history[assistIdx]._versions.push(full || oldContent);
   history[assistIdx]._currentVersion = history[assistIdx]._versions.length - 1;
@@ -450,12 +506,13 @@ async function regenerateResponse(id) {
   const el2 = messagesEl.querySelector(`[data-msg-id="${id}"]`);
   if (el2) {
     el2.querySelector('.msg-text').classList.remove('streaming');
-    if (full) el2.querySelector('.msg-text').textContent = full;
+    if (full) updateMsgText(id, full);
     const oldActions = el2.querySelector('.msg-actions');
     if (oldActions) {
       const newActions = buildActions(id);
       oldActions.replaceWith(newActions);
     }
+    processImageGens(el2);
   }
   updateVersionLabel(id);
   saveCurrentChat();
@@ -472,10 +529,11 @@ function cycleVersion(id, dir) {
   updateMsgText(id, msg.content);
   updateVersionLabel(id);
   saveCurrentChat();
+  const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
+  if (el) processImageGens(el);
 }
 
 async function regenerateAfter(userIdx) {
-  const char = characters[currentChar];
   const msg = history[userIdx].content;
   const sendHistory = buildSendHistory(userIdx);
 
@@ -484,43 +542,10 @@ async function regenerateAfter(userIdx) {
   const entry = { role: 'assistant', content: '', _id: newId, _versions: [], _currentVersion: 0, _streaming: true };
   history.splice(userIdx + 1, 0, entry);
   sending = true;
-  let full = '';
-
-  try {
-    const res = await fetch(`${WORKER_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: msg,
-        character: { name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
-        history: sendHistory,
-      }),
-    });
-    if (!res.ok) throw new Error('Request failed');
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      const text = decoder.decode(value, { stream: true });
-      const lines = text.split('\n');
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const chunk = JSON.parse(line.slice(6));
-          if (chunk.content) {
-            full += chunk.content;
-            updateMsgText(newId, full);
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-          }
-        } catch {}
-      }
-    }
-  } catch (e) {
-    full = 'Error generating response';
-  }
-
+  const body = makeSendBody(msg, sendHistory, false);
+  const full = await streamResponse(newId, body);
   sending = false;
+
   entry.content = full;
   entry._versions = [full];
   entry._currentVersion = 0;
@@ -528,12 +553,13 @@ async function regenerateAfter(userIdx) {
   const el = messagesEl.querySelector(`[data-msg-id="${newId}"]`);
   if (el) {
     el.querySelector('.msg-text').classList.remove('streaming');
-    el.querySelector('.msg-text').textContent = full;
+    updateMsgText(newId, full);
     const oldActions = el.querySelector('.msg-actions');
     if (oldActions) {
       const newActions = buildActions(newId);
       oldActions.replaceWith(newActions);
     }
+    processImageGens(el);
   }
   saveCurrentChat();
 }
@@ -590,7 +616,27 @@ function buildActions(id) {
   return div;
 }
 
-// ─── Send Message ───
+// ─── Image Upload ───
+imageUploadBtn.onclick = () => imageInput.click();
+imageInput.onchange = () => {
+  const file = imageInput.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    imageData = e.target.result;
+    previewImg.src = imageData;
+    imagePreview.classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+};
+clearImageBtn.onclick = () => {
+  imageData = null;
+  imageInput.value = '';
+  imagePreview.classList.add('hidden');
+  previewImg.src = '';
+};
+
+// ─── Send ───
 sendBtn.onclick = sendMessage;
 chatInput.onkeydown = (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
@@ -603,51 +649,26 @@ async function sendMessage() {
   sending = true;
   sendBtn.disabled = true;
 
+  const hasImage = !!imageData;
+  if (hasImage) {
+    imageData = null;
+    imageInput.value = '';
+    imagePreview.classList.add('hidden');
+    previewImg.src = '';
+  }
+
   const userMsg = { role: 'user', content: msg, _id: uid() };
   history.push(userMsg);
   addMessage('user', msg, userMsg._id, false);
 
-  const char = characters[currentChar];
   const sendHistory = buildSendHistory(history.length - 1);
   const assistId = uid();
-  const streamDiv = addMessage('assistant', '', assistId, false);
+  addMessage('assistant', '', assistId, false);
   const assistEntry = { role: 'assistant', content: '', _id: assistId, _versions: [], _currentVersion: 0 };
   history.push(assistEntry);
-  let full = '';
 
-  try {
-    const res = await fetch(`${WORKER_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: msg,
-        character: { name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
-        history: sendHistory,
-      }),
-    });
-    if (!res.ok) throw new Error('Request failed');
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      const text = decoder.decode(value, { stream: true });
-      const lines = text.split('\n');
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const chunk = JSON.parse(line.slice(6));
-          if (chunk.content) {
-            full += chunk.content;
-            updateMsgText(assistId, full);
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-          }
-        } catch {}
-      }
-    }
-  } catch (e) {
-    full = 'Error: ' + e.message;
-  }
+  const body = makeSendBody(msg, sendHistory, hasImage);
+  const full = await streamResponse(assistId, body);
 
   sending = false;
   sendBtn.disabled = false;
@@ -664,6 +685,7 @@ async function sendMessage() {
       const newActions = buildActions(assistId);
       oldActions.replaceWith(newActions);
     }
+    processImageGens(el);
   }
 
   if (!currentChatId) currentChatId = uid();
@@ -684,7 +706,6 @@ function saveCurrentChat() {
   });
 }
 
-// ─── Reset ───
 resetBtn.onclick = () => {
   if (currentChatId) deleteChat(currentChatId);
   if (currentChar) selectCharacter(currentChar);
@@ -699,7 +720,6 @@ $('newChatBtn').onclick = () => {
   if (currentChar) selectCharacter(currentChar);
 };
 
-// ─── History ───
 $('historyBtn').onclick = () => $('historyArea').classList.remove('hidden');
 $('closeHistoryBtn').onclick = () => $('historyArea').classList.add('hidden');
 
@@ -753,7 +773,6 @@ function loadChatById(chatId) {
   renderHistoryPanel();
 }
 
-// ─── Init ───
 initCharacters();
 renderSidebar();
 renderCharGrid();

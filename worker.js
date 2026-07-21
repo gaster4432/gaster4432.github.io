@@ -1,6 +1,6 @@
-// ─── CF Chat Worker — Chat Proxy Only ───
-// Credentials are stored as encrypted Worker secrets (Settings > Variables > Add secret)
-// No KV needed. No auth needed. Frontend handles everything in localStorage.
+// ==========================================
+// CF Chat Worker - Chat + Vision + Image Gen
+// ==========================================
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -27,18 +27,92 @@ export default {
       return json({ error: 'Not found' }, 404);
     }
 
-    const { message, character, history } = await request.json();
-    if (!message || !character) {
-      return json({ error: 'message and character required' }, 400);
+    const { message, character, history, image, generateImage } = await request.json();
+
+    if (!character) {
+      return json({ error: 'character required' }, 400);
+    }
+
+    // ========================
+    // IMAGE GENERATION
+    // ========================
+    if (generateImage) {
+      try {
+        const resp = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${env.CF_AUTH_TOKEN}` },
+            body: JSON.stringify({ prompt: generateImage }),
+          }
+        );
+
+        if (resp.ok) {
+          const buffer = await resp.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          return json({ image: `data:image/png;base64,${base64}` });
+        }
+      } catch (e) {}
+      return json({ error: "Image generation failed" });
+    }
+
+    // ========================
+    // CHAT + VISION
+    // ========================
+    if (!message) {
+      return json({ error: 'message required' }, 400);
     }
 
     const greeting = character.greeting || '';
-    const sysPrompt = character.systemPrompt || `You are ${character.name || 'a helpful assistant'}. Be helpful.`;
+    let sysPrompt = (character.systemPrompt || `You are ${character.name || 'a helpful assistant'}.`)
+      + `\n\nYou can generate images inline using the syntax: ![img](describe what to draw here). Place this where you want the image to appear in your response. When you use it, also keep talking — don't just output the image marker. Describe it and continue the conversation naturally.`;
+
+    let userContent = message;
+
+    // === IMAGE UNDERSTANDING ===
+    if (image) {
+      try {
+        const visionResp = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai/run/@cf/mistralai/mistral-small-3.1-24b-instruct`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${env.CF_AUTH_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              messages: [
+                { role: "system", content: "Describe the image in detail." },
+                {
+                  role: "user",
+                  content: [
+                    { type: "text", text: "Describe this image accurately and in detail:" },
+                    { type: "image_url", image_url: { url: image.startsWith("data:") ? image : `data:image/png;base64,${image}` } }
+                  ]
+                }
+              ],
+              max_tokens: 1024
+            })
+          }
+        );
+
+        if (visionResp.ok) {
+          const visionData = await visionResp.json();
+          const description = visionData.result?.response || "An image was provided.";
+          userContent = `${message}\n\n[Image Description]: ${description}`;
+        }
+      } catch (e) {
+        userContent = `${message}\n\n[Image could not be analyzed]`;
+      }
+    }
+
+    // Build conversation
     const msgs = [{ role: 'system', content: sysPrompt }];
     if (greeting) msgs.push({ role: 'assistant', content: greeting });
     for (const m of (history || [])) msgs.push(m);
-    msgs.push({ role: 'user', content: message });
+    msgs.push({ role: 'user', content: userContent });
 
+    // Call main roleplay model
     const model = env.CF_MODEL || '@cf/qwen/qwen2.5-coder-32b-instruct';
 
     const aiResp = await fetch(
@@ -60,10 +134,10 @@ export default {
     );
 
     if (!aiResp.ok) {
-      const err = await aiResp.text();
-      return json({ error: `API error: ${err.slice(0, 500)}` }, 502);
+      return json({ error: 'AI request failed' }, 502);
     }
 
+    // Streaming response
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const encoder = new TextEncoder();
@@ -79,6 +153,7 @@ export default {
           buf += decoder.decode(value, { stream: true });
           const lines = buf.split('\n');
           buf = lines.pop() || '';
+
           for (const line of lines) {
             const t = line.trim();
             if (!t.startsWith('data: ')) continue;
