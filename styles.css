@@ -667,6 +667,17 @@ input, textarea, button { font-family: inherit; }
   border-radius: 0;
 }
 
+.code-wrap { position: relative; }
+.copy-btn {
+  position: absolute; top: 6px; right: 6px; z-index: 2;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.4); padding: 3px 10px; border-radius: 6px;
+  font-size: 11px; cursor: pointer; font-family: inherit;
+  transition: all 0.15s; opacity: 0;
+}
+.code-wrap:hover .copy-btn { opacity: 1; }
+.copy-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
 /* ── Image Preview ── */
 .image-preview {
   display: flex;

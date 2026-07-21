@@ -149,9 +149,20 @@ function renderMsgContent(text) {
     const nl = inner.indexOf('\n');
     let lang = '', code = inner;
     if (nl > -1) { lang = escapeHtml(inner.slice(0, nl).trim()); code = inner.slice(nl + 1); }
-    return `<pre><code${lang ? ' class="language-'+lang+'"' : ''}>${escapeHtml(code)}</code></pre>`;
+    const id = 'cb_' + (++msgCounter);
+    return `<div class="code-wrap"><button class="copy-btn" onclick="copyCode('${id}')">Copy</button><pre><code${lang ? ' class="language-'+lang+'"' : ''} id="${id}">${escapeHtml(code)}</code></pre></div>`;
   }).join('');
 }
+
+window.copyCode = function(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const text = el.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = el.parentElement.previousElementSibling;
+    if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1500); }
+  }).catch(() => {});
+};
 
 function addMessage(role, content, id, isGreeting) {
   id = id || uid();
