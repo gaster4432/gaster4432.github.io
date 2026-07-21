@@ -68,7 +68,7 @@ export default {
 
     const greeting = character.greeting || '';
     let sysPrompt = (character.systemPrompt || `You are ${character.name || 'a helpful assistant'}.`)
-      + `\n\nYou can generate images inline using the syntax: ![img](describe what to draw here). Place this where you want the image to appear in your response. When you use it, also keep talking — don't just output the image marker. Describe it and continue the conversation naturally.`;
+      + `\n\nThe user can generate AI images. When they do, you'll receive the image and can describe or discuss it naturally.`;
 
     let userContent = message;
 

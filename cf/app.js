@@ -27,6 +27,7 @@ const imageUploadBtn = $('imageUploadBtn');
 const imagePreview = $('imagePreview');
 const previewImg = $('previewImg');
 const clearImageBtn = $('clearImageBtn');
+const generateBtn = $('generateBtn');
 
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -167,10 +168,6 @@ async function processImageGens(root) {
     if (!prompt || !genId) continue;
     const statusEl = document.getElementById(genId);
     if (!statusEl) continue;
-    if (sessionStorage.getItem('img_cache_' + prompt)) {
-      statusEl.outerHTML = `<img class="msg-img" src="${sessionStorage.getItem('img_cache_' + prompt)}" alt="generated image">`;
-      continue;
-    }
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 45000);
@@ -184,16 +181,19 @@ async function processImageGens(root) {
       if (res.ok) {
         const data = await res.json();
         if (data.image) {
-          sessionStorage.setItem('img_cache_' + prompt, data.image);
-          statusEl.outerHTML = `<img class="msg-img" src="${data.image}" alt="generated image">`;
+          const img = document.createElement('img');
+          img.className = 'msg-img';
+          img.alt = 'generated image';
+          statusEl.parentNode.replaceChild(img, statusEl);
+          img.src = data.image;
         } else {
-          statusEl.textContent = 'image: ' + (data.error || 'failed');
+          statusEl.textContent = data.error || 'failed';
         }
       } else {
-        statusEl.textContent = 'image failed (' + res.status + ')';
+        statusEl.textContent = 'error ' + res.status;
       }
     } catch(e) {
-      statusEl.textContent = e.name === 'AbortError' ? 'timed out' : 'image error';
+      statusEl.textContent = e.name === 'AbortError' ? 'timed out' : 'error';
     }
   }
 }
@@ -642,6 +642,105 @@ clearImageBtn.onclick = () => {
   imageInput.value = '';
   imagePreview.classList.add('hidden');
   previewImg.src = '';
+};
+
+// ─── Generate Image ───
+generateBtn.onclick = async () => {
+  const prompt = chatInput.value.trim();
+  if (!prompt || sending || !currentChar) return;
+  chatInput.value = '';
+  sending = true;
+
+  const msgId = uid();
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  div.dataset.msgId = msgId;
+  div.innerHTML = `<span class="msg-text"><span class="msg-img loading">🎨 generating...</span></span>`;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45000);
+    const res = await fetch(`${WORKER_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character: { name: 'ai' }, generateImage: prompt }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.image) {
+        const textSpan = div.querySelector('.msg-text');
+        textSpan.innerHTML = '';
+        const img = document.createElement('img');
+        img.className = 'msg-img';
+        img.alt = prompt;
+        textSpan.appendChild(img);
+        img.src = data.image;
+
+        // Now send prompt + image to AI for commentary
+        const body = {
+          message: prompt,
+          character: { name: characters[currentChar]?.name || 'assistant', greeting: '', systemPrompt: '' },
+          history: [],
+          image: data.image,
+        };
+        const assistId = uid();
+        const assistEntry = { role: 'assistant', content: '', _id: assistId, _versions: [], _currentVersion: 0 };
+        history.push({ role: 'user', content: prompt + ' [generated image]', _id: uid() });
+        history.push(assistEntry);
+        const resp = await fetch(`${WORKER_URL}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (resp.ok) {
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder();
+          let full = '';
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            const text = decoder.decode(value, { stream: true });
+            const lines = text.split('\n');
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const chunk = JSON.parse(line.slice(6));
+                if (chunk.content) {
+                  full += chunk.content;
+                  const commentDiv = document.createElement('div');
+                  commentDiv.className = 'msg assistant';
+                  commentDiv.dataset.msgId = assistId;
+                  commentDiv.innerHTML = `<span class="msg-text">${escapeHtml(full)}</span>`;
+                  const existing = messagesEl.querySelector(`[data-msg-id="${assistId}"]`);
+                  if (existing) existing.querySelector('.msg-text').textContent = full;
+                  else messagesEl.appendChild(commentDiv);
+                  messagesEl.scrollTop = messagesEl.scrollHeight;
+                }
+              } catch {}
+            }
+          }
+          assistEntry.content = full;
+          assistEntry._versions = [full];
+          assistEntry._currentVersion = 0;
+        }
+        if (!currentChatId) currentChatId = uid();
+        saveCurrentChat();
+        renderSidebar();
+        renderHistoryPanel();
+      } else {
+        div.querySelector('.msg-text').textContent = 'Generation failed: ' + (data.error || 'unknown');
+      }
+    } else {
+      div.querySelector('.msg-text').textContent = 'Generation error: ' + res.status;
+    }
+  } catch(e) {
+    div.querySelector('.msg-text').textContent = e.name === 'AbortError' ? 'Timed out' : 'Error';
+  }
+  sending = false;
 };
 
 // ─── Send ───
