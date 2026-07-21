@@ -27,7 +27,7 @@ const imageUploadBtn = $('imageUploadBtn');
 const imagePreview = $('imagePreview');
 const previewImg = $('previewImg');
 const clearImageBtn = $('clearImageBtn');
-const generateBtn = $('generateBtn');
+
 
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -142,60 +142,7 @@ function selectCharacter(key) {
 }
 
 function renderMsgContent(text) {
-  const parts = text.split(/(!\[img\]\([^)]+\))/g);
-  let html = '';
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    if (!part) continue;
-    const m = part.match(/^!\[img\]\(([^)]+)\)$/);
-    if (m) {
-      const prompt = m[1];
-      const genId = 'gen_' + uid();
-      html += `<span class="gen-img" data-gen-prompt="${escapeHtml(prompt)}" data-gen-id="${genId}">`;
-      html += `<span class="msg-img loading" id="${genId}">🎨 generating...</span></span>`;
-    } else {
-      html += escapeHtml(part);
-    }
-  }
-  return html;
-}
-
-async function processImageGens(root) {
-  const containers = root ? root.querySelectorAll('.gen-img') : document.querySelectorAll('.gen-img');
-  for (const el of containers) {
-    const prompt = el.dataset.genPrompt;
-    const genId = el.dataset.genId;
-    if (!prompt || !genId) continue;
-    const statusEl = document.getElementById(genId);
-    if (!statusEl) continue;
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 45000);
-      const res = await fetch(`${WORKER_URL}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ character: { name: 'ai' }, generateImage: prompt }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.image) {
-          const img = document.createElement('img');
-          img.className = 'msg-img';
-          img.alt = 'generated image';
-          statusEl.parentNode.replaceChild(img, statusEl);
-          img.src = data.image;
-        } else {
-          statusEl.textContent = data.error || 'failed';
-        }
-      } else {
-        statusEl.textContent = 'error ' + res.status;
-      }
-    } catch(e) {
-      statusEl.textContent = e.name === 'AbortError' ? 'timed out' : 'error';
-    }
-  }
+  return escapeHtml(text);
 }
 
 function addMessage(role, content, id, isGreeting) {
@@ -259,7 +206,6 @@ function addMessage(role, content, id, isGreeting) {
   div.appendChild(actions);
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
-  setTimeout(() => processImageGens(div), 50);
   return div;
 }
 
@@ -520,7 +466,6 @@ async function regenerateResponse(id) {
       const newActions = buildActions(id);
       oldActions.replaceWith(newActions);
     }
-    processImageGens(el2);
   }
   updateVersionLabel(id);
   saveCurrentChat();
@@ -537,8 +482,6 @@ function cycleVersion(id, dir) {
   updateMsgText(id, msg.content);
   updateVersionLabel(id);
   saveCurrentChat();
-  const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
-  if (el) processImageGens(el);
 }
 
 async function regenerateAfter(userIdx) {
@@ -567,7 +510,6 @@ async function regenerateAfter(userIdx) {
       const newActions = buildActions(newId);
       oldActions.replaceWith(newActions);
     }
-    processImageGens(el);
   }
   saveCurrentChat();
 }
@@ -644,105 +586,6 @@ clearImageBtn.onclick = () => {
   previewImg.src = '';
 };
 
-// ─── Generate Image ───
-generateBtn.onclick = async () => {
-  const prompt = chatInput.value.trim();
-  if (!prompt || sending || !currentChar) return;
-  chatInput.value = '';
-  sending = true;
-
-  const msgId = uid();
-  const div = document.createElement('div');
-  div.className = 'msg assistant';
-  div.dataset.msgId = msgId;
-  div.innerHTML = `<span class="msg-text"><span class="msg-img loading">🎨 generating...</span></span>`;
-  messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000);
-    const res = await fetch(`${WORKER_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ character: { name: 'ai' }, generateImage: prompt }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.image) {
-        const textSpan = div.querySelector('.msg-text');
-        textSpan.innerHTML = '';
-        const img = document.createElement('img');
-        img.className = 'msg-img';
-        img.alt = prompt;
-        textSpan.appendChild(img);
-        img.src = data.image;
-
-        // Now send prompt + image to AI for commentary
-        const body = {
-          message: prompt,
-          character: { name: characters[currentChar]?.name || 'assistant', greeting: '', systemPrompt: '' },
-          history: [],
-          image: data.image,
-        };
-        const assistId = uid();
-        const assistEntry = { role: 'assistant', content: '', _id: assistId, _versions: [], _currentVersion: 0 };
-        history.push({ role: 'user', content: prompt + ' [generated image]', _id: uid() });
-        history.push(assistEntry);
-        const resp = await fetch(`${WORKER_URL}/api/chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (resp.ok) {
-          const reader = resp.body.getReader();
-          const decoder = new TextDecoder();
-          let full = '';
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            const text = decoder.decode(value, { stream: true });
-            const lines = text.split('\n');
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue;
-              try {
-                const chunk = JSON.parse(line.slice(6));
-                if (chunk.content) {
-                  full += chunk.content;
-                  const commentDiv = document.createElement('div');
-                  commentDiv.className = 'msg assistant';
-                  commentDiv.dataset.msgId = assistId;
-                  commentDiv.innerHTML = `<span class="msg-text">${escapeHtml(full)}</span>`;
-                  const existing = messagesEl.querySelector(`[data-msg-id="${assistId}"]`);
-                  if (existing) existing.querySelector('.msg-text').textContent = full;
-                  else messagesEl.appendChild(commentDiv);
-                  messagesEl.scrollTop = messagesEl.scrollHeight;
-                }
-              } catch {}
-            }
-          }
-          assistEntry.content = full;
-          assistEntry._versions = [full];
-          assistEntry._currentVersion = 0;
-        }
-        if (!currentChatId) currentChatId = uid();
-        saveCurrentChat();
-        renderSidebar();
-        renderHistoryPanel();
-      } else {
-        div.querySelector('.msg-text').textContent = 'Generation failed: ' + (data.error || 'unknown');
-      }
-    } else {
-      div.querySelector('.msg-text').textContent = 'Generation error: ' + res.status;
-    }
-  } catch(e) {
-    div.querySelector('.msg-text').textContent = e.name === 'AbortError' ? 'Timed out' : 'Error';
-  }
-  sending = false;
-};
-
 // ─── Send ───
 sendBtn.onclick = sendMessage;
 chatInput.onkeydown = (e) => {
@@ -792,7 +635,6 @@ async function sendMessage() {
       const newActions = buildActions(assistId);
       oldActions.replaceWith(newActions);
     }
-    processImageGens(el);
   }
 
   if (!currentChatId) currentChatId = uid();

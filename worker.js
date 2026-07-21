@@ -27,48 +27,18 @@ export default {
       return json({ error: 'Not found' }, 404);
     }
 
-    const { message, character, history, image, generateImage } = await request.json();
+    const { message, character, history, image } = await request.json();
 
     if (!character) {
       return json({ error: 'character required' }, 400);
     }
 
-    // ========================
-    // IMAGE GENERATION
-    // ========================
-    if (generateImage) {
-      try {
-        const resp = await fetch(
-          `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
-          {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${env.CF_AUTH_TOKEN}` },
-            body: JSON.stringify({ prompt: generateImage }),
-          }
-        );
-
-        if (resp.ok) {
-          const buffer = await resp.arrayBuffer();
-          const bytes = new Uint8Array(buffer);
-          let binary = '';
-          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-          const base64 = btoa(binary);
-          return json({ image: `data:image/png;base64,${base64}` });
-        }
-      } catch (e) {}
-      return json({ error: "Image generation failed" });
-    }
-
-    // ========================
-    // CHAT + VISION
-    // ========================
     if (!message) {
       return json({ error: 'message required' }, 400);
     }
 
     const greeting = character.greeting || '';
-    let sysPrompt = (character.systemPrompt || `You are ${character.name || 'a helpful assistant'}.`)
-      + `\n\nThe user can generate AI images. When they do, you'll receive the image and can describe or discuss it naturally.`;
+    let sysPrompt = character.systemPrompt || `You are ${character.name || 'a helpful assistant'}.`;
 
     let userContent = message;
 
