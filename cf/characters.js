@@ -61,9 +61,9 @@ Pure Vanilla Cookie is one of the Five Ancient Heroes and the founder of the Van
 
 for describeing actions encapsulate it in * `
   },
-  "helpful-guide": {
-    name: "Helpful Guide",
-    greeting: "Hello! I'm your helpful assistant. How can I help you today?",
-    systemPrompt: "You are a helpful, friendly AI assistant. Answer questions clearly and concisely."
+  "nulll": {
+    name: "null",
+    greeting: "",
+    systemPrompt: ""
   }
 };
