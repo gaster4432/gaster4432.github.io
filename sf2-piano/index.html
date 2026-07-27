@@ -37,7 +37,7 @@ select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,
 #pianoWrap { display: none; flex-direction: column; flex: 1; overflow: hidden; }
 #pianoInfo { text-align: center; padding: 8px; font-size: 12px; color: rgba(255,255,255,0.2); flex-shrink: 0; }
 #pianoContainer { flex: 1; display: flex; align-items: flex-end; justify-content: center; padding: 0 20px 20px; overflow-x: auto; }
-#piano { display: flex; position: relative; height: 200px; touch-action: none; }
+#piano { display: flex; position: relative; height: 200px; touch-action: none; --wk-w: 44px; --bk-half: 14px; }
 .white-key { width: 44px; height: 200px; background: #e8e8e8; border: 1px solid #bbb; border-radius: 0 0 6px 6px; cursor: pointer; position: relative; transition: background 0.05s; flex-shrink: 0; }
 .white-key:active, .white-key.active { background: #c8c8c8; }
 .white-key .label { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-size: 10px; color: rgba(0,0,0,0.25); pointer-events: none; }
@@ -53,6 +53,7 @@ select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,
   .white-key { width: 36px; height: 160px; }
   .black-key { width: 22px; height: 96px; }
   #pianoContainer { padding: 0 10px 12px; }
+  #piano { --wk-w: 36px; --bk-half: 11px; }
 }
 </style>
 </head>
@@ -129,10 +130,21 @@ let sfId = null;
 const $ = id => document.getElementById(id);
 
 // ─── Piano UI ───
+// ─── Pointer tracking for swipe ───
+let pointerNote = null;
+
+function keyFromPoint(x, y) {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  const key = el.closest('.white-key, .black-key');
+  return key ? parseInt(key.dataset.note) : null;
+}
+
 function buildPiano() {
   const piano = $('piano');
   piano.innerHTML = '';
   const whiteKeys = [];
+
   for (const n of NOTES) {
     if (BLACK_SET.has(n.note)) continue;
     const el = document.createElement('div');
@@ -143,31 +155,25 @@ function buildPiano() {
     label.textContent = n.name;
     el.appendChild(label);
     piano.appendChild(el);
-    whiteKeys.push({ el, note: n.note });
+    whiteKeys.push(el);
   }
 
-  // Place black keys
-  let whiteIdx = 0;
+  // Place black keys using CSS calc + variables (avoids offsetLeft=0 when hidden)
   for (let i = 0; i < NOTES.length; i++) {
     const n = NOTES[i];
-    if (!BLACK_SET.has(n.note)) { whiteIdx++; continue; }
-    // Find the white key before this black key
-    let prevWhiteIdx = -1;
+    if (!BLACK_SET.has(n.note)) continue;
+    let prevWhite = null;
     for (let j = i - 1; j >= 0; j--) {
       if (!BLACK_SET.has(NOTES[j].note)) {
-        const wn = NOTES[j].note;
-        prevWhiteIdx = whiteKeys.findIndex(w => w.note === wn);
+        prevWhite = whiteKeys.find(el => parseInt(el.dataset.note) === NOTES[j].note);
         break;
       }
     }
-    if (prevWhiteIdx < 0) continue;
-    const wk = whiteKeys[prevWhiteIdx];
+    if (!prevWhite) continue;
+    const prevIdx = whiteKeys.indexOf(prevWhite);
     const wrap = document.createElement('div');
     wrap.className = 'black-key-wrap';
-    const wRect = wk.el.getBoundingClientRect();
-    const pRect = piano.getBoundingClientRect();
-    // Position using the white key's offset within the piano
-    wrap.style.left = (wk.el.offsetLeft + wk.el.offsetWidth - 14) + 'px';
+    wrap.style.left = `calc(${prevIdx + 1} * var(--wk-w) - var(--bk-half))`;
     const bk = document.createElement('div');
     bk.className = 'black-key';
     bk.dataset.note = n.note;
@@ -175,16 +181,51 @@ function buildPiano() {
     piano.appendChild(wrap);
   }
 
-  // Event listeners
-  piano.querySelectorAll('.white-key, .black-key').forEach(el => {
-    el.addEventListener('mousedown', e => { e.preventDefault(); noteOn(parseInt(el.dataset.note)); });
-    el.addEventListener('mouseup', () => noteOff(parseInt(el.dataset.note)));
-    el.addEventListener('mouseleave', () => {
-      if (el.classList.contains('active')) noteOff(parseInt(el.dataset.note));
-    });
-    el.addEventListener('touchstart', e => { e.preventDefault(); noteOn(parseInt(el.dataset.note)); }, { passive: false });
-    el.addEventListener('touchend', e => { e.preventDefault(); noteOff(parseInt(el.dataset.note)); }, { passive: false });
-    el.addEventListener('touchcancel', () => noteOff(parseInt(el.dataset.note)));
+  // ─── Container-level events for swipe support ───
+  piano.addEventListener('mousedown', e => {
+    const note = keyFromPoint(e.clientX, e.clientY);
+    if (note !== null) { noteOn(note); pointerNote = note; }
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (pointerNote === null) return;
+    const note = keyFromPoint(e.clientX, e.clientY);
+    if (note !== null && note !== pointerNote) {
+      if (pointerNote !== null) noteOff(pointerNote);
+      noteOn(note);
+      pointerNote = note;
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (pointerNote !== null) { noteOff(pointerNote); pointerNote = null; }
+  });
+
+  piano.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const t = e.touches[0];
+    const note = keyFromPoint(t.clientX, t.clientY);
+    if (note !== null) { noteOn(note); pointerNote = note; }
+  }, { passive: false });
+
+  piano.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const t = e.touches[0];
+    const note = keyFromPoint(t.clientX, t.clientY);
+    if (note !== null && note !== pointerNote) {
+      if (pointerNote !== null) noteOff(pointerNote);
+      noteOn(note);
+      pointerNote = note;
+    }
+  }, { passive: false });
+
+  piano.addEventListener('touchend', e => {
+    e.preventDefault();
+    if (pointerNote !== null) { noteOff(pointerNote); pointerNote = null; }
+  }, { passive: false });
+
+  piano.addEventListener('touchcancel', () => {
+    if (pointerNote !== null) { noteOff(pointerNote); pointerNote = null; }
   });
 }
 
