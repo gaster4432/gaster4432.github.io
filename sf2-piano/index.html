@@ -130,8 +130,9 @@ let sfId = null;
 const $ = id => document.getElementById(id);
 
 // ─── Piano UI ───
-// ─── Pointer tracking for swipe ───
-let pointerNote = null;
+// ─── Pointer tracking for swipe & multitouch ───
+let mouseNote = null;
+const touchNotes = new Map(); // touchId -> note
 
 function keyFromPoint(x, y) {
   const el = document.elementFromPoint(x, y);
@@ -181,51 +182,68 @@ function buildPiano() {
     piano.appendChild(wrap);
   }
 
-  // ─── Container-level events for swipe support ───
+  // ─── Mouse (single pointer + swipe) ───
   piano.addEventListener('mousedown', e => {
     const note = keyFromPoint(e.clientX, e.clientY);
-    if (note !== null) { noteOn(note); pointerNote = note; }
+    if (note !== null) { noteOn(note); mouseNote = note; }
   });
 
   document.addEventListener('mousemove', e => {
-    if (pointerNote === null) return;
+    if (mouseNote === null) return;
     const note = keyFromPoint(e.clientX, e.clientY);
-    if (note !== null && note !== pointerNote) {
-      if (pointerNote !== null) noteOff(pointerNote);
+    if (note !== null && note !== mouseNote) {
+      noteOff(mouseNote);
       noteOn(note);
-      pointerNote = note;
+      mouseNote = note;
     }
   });
 
   document.addEventListener('mouseup', () => {
-    if (pointerNote !== null) { noteOff(pointerNote); pointerNote = null; }
+    if (mouseNote !== null) { noteOff(mouseNote); mouseNote = null; }
   });
 
+  // ─── Touch (multitouch + swipe per finger) ───
   piano.addEventListener('touchstart', e => {
     e.preventDefault();
-    const t = e.touches[0];
-    const note = keyFromPoint(t.clientX, t.clientY);
-    if (note !== null) { noteOn(note); pointerNote = note; }
+    for (let i = 0; i < e.touches.length; i++) {
+      const t = e.touches[i];
+      const note = keyFromPoint(t.clientX, t.clientY);
+      if (note !== null && !touchNotes.has(t.identifier)) {
+        noteOn(note);
+        touchNotes.set(t.identifier, note);
+      }
+    }
   }, { passive: false });
 
   piano.addEventListener('touchmove', e => {
     e.preventDefault();
-    const t = e.touches[0];
-    const note = keyFromPoint(t.clientX, t.clientY);
-    if (note !== null && note !== pointerNote) {
-      if (pointerNote !== null) noteOff(pointerNote);
-      noteOn(note);
-      pointerNote = note;
+    for (let i = 0; i < e.touches.length; i++) {
+      const t = e.touches[i];
+      const prev = touchNotes.get(t.identifier);
+      const note = keyFromPoint(t.clientX, t.clientY);
+      if (note !== null && note !== prev) {
+        if (prev !== undefined) noteOff(prev);
+        noteOn(note);
+        touchNotes.set(t.identifier, note);
+      }
     }
   }, { passive: false });
 
   piano.addEventListener('touchend', e => {
     e.preventDefault();
-    if (pointerNote !== null) { noteOff(pointerNote); pointerNote = null; }
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      const note = touchNotes.get(t.identifier);
+      if (note !== undefined) { noteOff(note); touchNotes.delete(t.identifier); }
+    }
   }, { passive: false });
 
-  piano.addEventListener('touchcancel', () => {
-    if (pointerNote !== null) { noteOff(pointerNote); pointerNote = null; }
+  piano.addEventListener('touchcancel', e => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      const note = touchNotes.get(t.identifier);
+      if (note !== undefined) { noteOff(note); touchNotes.delete(t.identifier); }
+    }
   });
 }
 
