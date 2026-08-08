@@ -7,6 +7,7 @@ let history = [];
 let sending = false;
 let msgCounter = 0;
 let imageData = null;
+let currentEditCharKey = null;
 
 const $ = id => document.getElementById(id);
 const messagesEl = $('messages');
@@ -31,6 +32,16 @@ const clearImageBtn = $('clearImageBtn');
 
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function usableAvatar(src) {
+  return src && (src.startsWith('/') || src.startsWith('../') || src.startsWith('data:') || src.startsWith('http'));
+}
+
+function setChatAvatar(char) {
+  if (!char) { chatCharAvatar.innerHTML = ''; return; }
+  chatCharAvatar.innerHTML = (usableAvatar(char.avatar))
+    ? `<img src="${char.avatar}" alt="${escapeHtml(char.name)}">` : '';
 }
 
 function uid() { return 'm' + (++msgCounter) + '_' + Date.now(); }
@@ -79,6 +90,26 @@ function initCharacters() {
   characters = { ...DEFAULT_CHARACTERS, ...custom };
 }
 
+async function fetchRemoteCharacters() {
+  try {
+    const res = await fetch(`${WORKER_URL}/api/characters`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const list = (data && data.characters) || [];
+    for (const c of list) {
+      if (c && c.id) characters[c.id] = {
+        name: c.name || 'Unknown',
+        greeting: c.greeting || '',
+        systemPrompt: c.systemPrompt || '',
+        avatar: c.avatar || '',
+        remote: true,
+      };
+    }
+    renderSidebar();
+    renderCharGrid();
+  } catch (e) {}
+}
+
 function renderSidebar() {
   charSidebarList.innerHTML = '';
   for (const [k, v] of Object.entries(characters)) {
@@ -103,10 +134,18 @@ function renderCharGrid() {
     if (q && !v.name.toLowerCase().includes(q)) continue;
     const c = document.createElement('div');
     c.className = 'char-card' + (k === currentChar ? ' active' : '');
-    const hasAvatar = v.avatar && (v.avatar.startsWith('/') || v.avatar.startsWith('../'));
+    const hasAvatar = usableAvatar(v.avatar);
     c.innerHTML = `<div class="char-card-avatar">${hasAvatar ? `<img src="${v.avatar}" loading="lazy">` : ''}</div>
       <div class="char-card-name">${escapeHtml(v.name)}</div>`;
     c.onclick = () => selectCharacter(k);
+    if (v.remote) {
+      const editBtn = document.createElement('button');
+      editBtn.className = 'msg-action-btn char-edit-btn';
+      editBtn.title = 'Edit character';
+      editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+      editBtn.onclick = (e) => { e.stopPropagation(); openCharModal(k); };
+      c.appendChild(editBtn);
+    }
     characterGrid.appendChild(c);
   }
 }
@@ -130,8 +169,7 @@ function selectCharacter(key) {
   if (char) {
     charName.textContent = char.name;
     charGreeting.textContent = char.greeting || '';
-    chatCharAvatar.innerHTML = (char.avatar && (char.avatar.startsWith('/') || char.avatar.startsWith('../')))
-      ? `<img src="${char.avatar}" alt="${escapeHtml(char.name)}">` : '';
+    setChatAvatar(char);
     if (char.greeting) {
       addMessage('assistant', char.greeting, null, true);
     }
@@ -732,8 +770,7 @@ function loadChatById(chatId) {
   if (char) {
     charName.textContent = char.name;
     charGreeting.textContent = char.greeting || '';
-    chatCharAvatar.innerHTML = (char.avatar && (char.avatar.startsWith('/') || char.avatar.startsWith('../')))
-      ? `<img src="${char.avatar}" alt="${escapeHtml(char.name)}">` : '';
+    setChatAvatar(char);
   }
   renderMessages();
   renderSidebar();
@@ -744,3 +781,157 @@ function loadChatById(chatId) {
 initCharacters();
 renderSidebar();
 renderCharGrid();
+fetchRemoteCharacters();
+
+// ─── Character Creation / Editing ───
+let cmNameEl, cmGreetingEl, cmPromptEl, cmAvatarPreview, cmAvatarInput, cmAvatarBtn, cmAvatarClear;
+let newCharAvatar = null;
+
+function charModalInit() {
+  cmNameEl = $('cmName');
+  cmGreetingEl = $('cmGreeting');
+  cmPromptEl = $('cmPrompt');
+  cmAvatarPreview = $('cmAvatarPreview');
+  cmAvatarInput = $('cmAvatarInput');
+  cmAvatarBtn = $('cmAvatarBtn');
+  cmAvatarClear = $('cmAvatarClear');
+
+  $('newCharBtn').onclick = () => openCharModal();
+  $('closeCharModalBtn').onclick = closeCharModal;
+  $('cmDeleteBtn').onclick = deleteCharacter;
+  $('cmSaveBtn').onclick = saveCharacter;
+  cmAvatarBtn.onclick = () => cmAvatarInput.click();
+  cmAvatarInput.onchange = () => {
+    const file = cmAvatarInput.files[0];
+    if (!file) return;
+    if (file.size > 1000000) {
+      alert('Image too large (max 1MB)');
+      cmAvatarInput.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      newCharAvatar = e.target.result;
+      updateAvatarPreview();
+    };
+    reader.readAsDataURL(file);
+  };
+  cmAvatarClear.onclick = () => {
+    newCharAvatar = null;
+    cmAvatarInput.value = '';
+    updateAvatarPreview();
+  };
+}
+
+function openCharModal(editingKey) {
+  currentEditCharKey = editingKey || null;
+  newCharAvatar = null;
+  cmAvatarInput.value = '';
+  const char = editingKey ? characters[editingKey] : null;
+  cmNameEl.value = char ? char.name : '';
+  cmGreetingEl.value = char ? (char.greeting || '') : '';
+  cmPromptEl.value = char ? (char.systemPrompt || '') : '';
+  $('charModalTitle').textContent = char ? 'Edit Character' : 'New Character';
+  $('cmSaveBtn').textContent = char ? 'Save' : 'Create';
+  $('cmDeleteBtn').classList.toggle('hidden', !char);
+  if (char && char.avatar) newCharAvatar = char.avatar;
+  updateAvatarPreview();
+  $('charModal').classList.remove('hidden');
+  cmNameEl.focus();
+}
+
+function updateAvatarPreview() {
+  if (newCharAvatar) {
+    cmAvatarPreview.style.backgroundImage = `url("${newCharAvatar}")`;
+    cmAvatarPreview.classList.remove('empty');
+  } else {
+    cmAvatarPreview.style.backgroundImage = '';
+    cmAvatarPreview.classList.add('empty');
+  }
+}
+
+function closeCharModal() {
+  $('charModal').classList.add('hidden');
+  currentEditCharKey = null;
+  newCharAvatar = null;
+}
+
+async function saveCharacter() {
+  const name = cmNameEl.value.trim();
+  if (!name) { cmNameEl.focus(); return; }
+  const payload = {
+    name,
+    greeting: cmGreetingEl.value,
+    systemPrompt: cmPromptEl.value,
+    avatar: newCharAvatar || '',
+  };
+  try {
+    let char;
+    if (currentEditCharKey) {
+      const res = await fetch(`${WORKER_URL}/api/characters/${encodeURIComponent(currentEditCharKey)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'save failed');
+      char = data.character;
+      characters[currentEditCharKey] = {
+        name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '', avatar: char.avatar || '', remote: true,
+      };
+      if (currentChar === currentEditCharKey) {
+        charName.textContent = characters[currentEditCharKey].name;
+        charGreeting.textContent = characters[currentEditCharKey].greeting || '';
+      }
+    } else {
+      const res = await fetch(`${WORKER_URL}/api/characters`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'create failed');
+      char = data.character;
+      characters[char.id] = {
+        name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '', avatar: char.avatar || '', remote: true,
+      };
+    }
+    closeCharModal();
+    renderSidebar();
+    renderCharGrid();
+    selectCharacter(char.id);
+  } catch (e) {
+    alert('Could not save character: ' + e.message);
+  }
+}
+
+async function deleteCharacter() {
+  if (!currentEditCharKey) return;
+  if (!confirm('Delete this character permanently?')) return;
+  try {
+    const res = await fetch(`${WORKER_URL}/api/characters/${encodeURIComponent(currentEditCharKey)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'delete failed');
+    }
+    delete characters[currentEditCharKey];
+    if (currentChar === currentEditCharKey) {
+      currentChar = null;
+      currentChatId = null;
+      history = [];
+      messagesEl.innerHTML = '';
+      charName.textContent = 'Select a Character';
+      charGreeting.textContent = '';
+      setChatAvatar(null);
+    }
+    closeCharModal();
+    renderSidebar();
+    renderCharGrid();
+  } catch (e) {
+    alert('Could not delete character: ' + e.message);
+  }
+}
+
+charModalInit();

@@ -204,6 +204,16 @@ input, textarea, button { font-family: inherit; }
 }
 .char-card-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .char-card-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.char-edit-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(0,0,0,0.6);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.6);
+}
+.char-card { position: relative; }
+.char-edit-btn:hover { color: #3b82f6; background: rgba(0,0,0,0.8); }
 
 /* ── Messages ── */
 .messages {
@@ -396,6 +406,70 @@ input, textarea, button { font-family: inherit; }
   flex-shrink: 0;
 }
 .btn-send:hover:not(:disabled) { opacity: 0.9; }
+
+/* ── Character Modal ── */
+.char-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 11, 0.9);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.char-modal {
+  background: #121214;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.char-modal-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.modal-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.4);
+  margin-top: 6px;
+}
+.modal-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.modal-avatar-preview {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2a2a2b, #18181b);
+  background-size: cover;
+  background-position: center;
+  flex-shrink: 0;
+}
+.modal-avatar-preview.empty::after {
+  content: 'img';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: rgba(255,255,255,0.15);
+  font-size: 10px;
+}
+.char-modal-footer {
+  padding: 14px 20px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  flex-shrink: 0;
+}
 
 /* ── History Overlay ── */
 .main-overlay {
