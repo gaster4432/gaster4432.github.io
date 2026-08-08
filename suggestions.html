@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Suggestion Box</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  min-height: 100%;
+  background: #0a0a0b;
+  color: #e8e8ed;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+body {
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(59,130,246,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(20,184,166,0.04) 0%, transparent 40%),
+    #0a0a0b;
+}
+a { color: #3b82f6; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.container {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 40px 24px 60px;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.back-link { font-size: 13px; color: rgba(255,255,255,0.35); }
+h1 {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  background: linear-gradient(135deg, #fff 0%, #67e8f9 50%, #3b82f6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 4px;
+}
+.subtitle { font-size: 14px; color: rgba(255,255,255,0.3); margin-bottom: 28px; }
+
+/* ── Add bar ── */
+.add-bar {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px;
+  margin-bottom: 24px;
+}
+.add-bar textarea {
+  flex: 1;
+  resize: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e8e8ed;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  min-height: 44px;
+  max-height: 160px;
+}
+.add-bar textarea::placeholder { color: rgba(255,255,255,0.25); }
+.add-btn {
+  align-self: flex-end;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 10px;
+  padding: 0 18px;
+  height: 38px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(135deg, #3b82f6, #14b8a6);
+  transition: opacity 0.15s;
+}
+.add-btn:hover { opacity: 0.9; }
+.add-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── List ── */
+.suggestion {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  margin-bottom: 10px;
+  animation: fadeUp 0.3s ease;
+}
+.suggestion .text { flex: 1; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; }
+.suggestion .date {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: rgba(255,255,255,0.2);
+  padding-top: 2px;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.empty { text-align: center; color: rgba(255,255,255,0.15); padding: 40px 0; font-size: 13px; }
+#statusMsg { font-size: 12px; color: rgba(255,255,255,0.25); text-align: center; padding-top: 12px; }
+@media (max-width: 640px) {
+  .container { padding: 24px 16px 40px; }
+  h1 { font-size: 24px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="topbar">
+    <div>
+      <h1>Suggestion Box</h1>
+      <p class="subtitle">drop an idea, totally anonymous</p>
+    </div>
+    <a class="back-link" href="/">← home</a>
+  </div>
+
+  <div class="add-bar">
+    <textarea id="input" rows="1" maxlength="2000" placeholder="Type a suggestion..."></textarea>
+    <button class="add-btn" id="sendBtn">Send</button>
+  </div>
+
+  <div id="list"></div>
+  <div id="statusMsg"></div>
+</div>
+
+<script>
+const API = 'https://suggestion-box.archlinuxkid99.workers.dev/api/suggestions';
+const listEl = document.getElementById('list');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('sendBtn');
+const statusEl = document.getElementById('statusMsg');
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatDate(d) {
+  const date = new Date(d);
+  const now = new Date();
+  const diff = (now - date) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+  return date.toLocaleDateString();
+}
+
+function render(suggestions) {
+  listEl.innerHTML = '';
+  if (!suggestions.length) {
+    listEl.innerHTML = '<div class="empty">No suggestions yet — be the first</div>';
+    return;
+  }
+  for (const s of suggestions) {
+    const div = document.createElement('div');
+    div.className = 'suggestion';
+    div.innerHTML = `<span class="text">${escapeHtml(s.text)}</span>
+      <span class="date">${formatDate(s.created_at + 'Z')}</span>`;
+    listEl.appendChild(div);
+  }
+}
+
+async function load() {
+  try {
+    const res = await fetch(API);
+    if (!res.ok) throw new Error('load failed');
+    const data = await res.json();
+    render(data.suggestions || []);
+    statusEl.textContent = '';
+  } catch (e) {
+    statusEl.textContent = 'Could not load suggestions: ' + e.message;
+  }
+}
+
+async function send() {
+  const text = inputEl.value.trim();
+  if (!text) return;
+  sendBtn.disabled = true;
+  try {
+    const res = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'send failed');
+    inputEl.value = '';
+    await load();
+  } catch (e) {
+    statusEl.textContent = 'Could not send: ' + e.message;
+  }
+  sendBtn.disabled = false;
+}
+
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+sendBtn.onclick = send;
+load();
+</script>
+</body>
+</html>
