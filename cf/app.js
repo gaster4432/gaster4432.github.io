@@ -1,4 +1,4 @@
-const WORKER_URL = 'https://lucky-band-5c81.archlinuxkid99.workers.dev';
+const WORKER_URL = 'https://cf-chat.archlinuxkid99.workers.dev';
 
 let characters = {};
 let currentChar = null;
