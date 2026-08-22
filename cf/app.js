@@ -10,6 +10,45 @@ let imageData = null;
 let currentEditCharKey = null;
 
 const $ = id => document.getElementById(id);
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Avatars can come from user-created remote characters — only allow safe
+// schemes, and always HTML-escape before injecting into an attribute.
+function safeAvatar(src) {
+  if (typeof src !== 'string') return '';
+  const s = src.trim();
+  if (!s) return '';
+  if (/^data:image\//i.test(s)) return s.length <= 2000000 ? s : '';
+  if (/^https?:\/\//i.test(s)) return s.slice(0, 2000);
+  if (s.startsWith('../') || s.startsWith('/')) return s;
+  return '';
+}
+
+function avatarImgHtml(src, alt, extraAttrs) {
+  const safe = safeAvatar(src);
+  if (!safe) return '';
+  return `<img src="${escapeHtml(safe)}" alt="${escapeHtml(alt || '')}"${extraAttrs ? ' ' + extraAttrs : ''}>`;
+}
+
+function loadJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const val = JSON.parse(raw);
+    return val ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const ICON_EDIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+const ICON_REGEN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+const ICON_PREV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>';
+const ICON_NEXT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
+
 const messagesEl = $('messages');
 const chatInput = $('chatInput');
 const sendBtn = $('sendBtn');
@@ -30,25 +69,16 @@ const previewImg = $('previewImg');
 const clearImageBtn = $('clearImageBtn');
 
 
-function escapeHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function usableAvatar(src) {
-  return src && (src.startsWith('/') || src.startsWith('../') || src.startsWith('data:') || src.startsWith('http'));
-}
-
 function setChatAvatar(char) {
   if (!char) { chatCharAvatar.innerHTML = ''; return; }
-  chatCharAvatar.innerHTML = (usableAvatar(char.avatar))
-    ? `<img src="${char.avatar}" alt="${escapeHtml(char.name)}">` : '';
+  chatCharAvatar.innerHTML = avatarImgHtml(char.avatar, char.name);
 }
 
 function uid() { return 'm' + (++msgCounter) + '_' + Date.now(); }
 
 function loadData() {
-  const stored = localStorage.getItem('cf_chat_chats');
-  return stored ? JSON.parse(stored) : [];
+  const stored = loadJSON('cf_chat_chats', []);
+  return Array.isArray(stored) ? stored : [];
 }
 
 function saveData(chats) {
@@ -85,9 +115,8 @@ function getMostRecentChat(charKey) {
 }
 
 function initCharacters() {
-  const stored = localStorage.getItem('cf_chat_custom_chars');
-  const custom = stored ? JSON.parse(stored) : {};
-  characters = { ...DEFAULT_CHARACTERS, ...custom };
+  const custom = loadJSON('cf_chat_custom_chars', {});
+  characters = { ...DEFAULT_CHARACTERS, ...(custom && typeof custom === 'object' ? custom : {}) };
 }
 
 async function fetchRemoteCharacters() {
@@ -116,8 +145,7 @@ function renderSidebar() {
     const recent = getMostRecentChat(k);
     const item = document.createElement('div');
     item.className = 'sidebar-char' + (k === currentChar ? ' active' : '');
-    const avatarSrc = v.avatar || '';
-    item.innerHTML = `<div class="sidebar-char-avatar">${avatarSrc ? `<img src="${avatarSrc}">` : ''}</div>
+    item.innerHTML = `<div class="sidebar-char-avatar">${avatarImgHtml(v.avatar, v.name)}</div>
       <div class="sidebar-char-text">
         <span class="sidebar-char-name">${escapeHtml(v.name)}</span>
         ${recent ? `<span class="sidebar-char-last">${escapeHtml((recent.title || 'Chat').slice(0, 30))}</span>` : ''}
@@ -134,15 +162,14 @@ function renderCharGrid() {
     if (q && !v.name.toLowerCase().includes(q)) continue;
     const c = document.createElement('div');
     c.className = 'char-card' + (k === currentChar ? ' active' : '');
-    const hasAvatar = usableAvatar(v.avatar);
-    c.innerHTML = `<div class="char-card-avatar">${hasAvatar ? `<img src="${v.avatar}" loading="lazy">` : ''}</div>
+    c.innerHTML = `<div class="char-card-avatar">${avatarImgHtml(v.avatar, v.name, 'loading="lazy"')}</div>
       <div class="char-card-name">${escapeHtml(v.name)}</div>`;
     c.onclick = () => selectCharacter(k);
     if (v.remote) {
       const editBtn = document.createElement('button');
       editBtn.className = 'msg-action-btn char-edit-btn';
       editBtn.title = 'Edit character';
-      editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+      editBtn.innerHTML = ICON_EDIT;
       editBtn.onclick = (e) => { e.stopPropagation(); openCharModal(k); };
       c.appendChild(editBtn);
     }
@@ -197,7 +224,8 @@ window.copyCode = function(id) {
   if (!el) return;
   const text = el.textContent;
   navigator.clipboard.writeText(text).then(() => {
-    const btn = el.parentElement.previousElementSibling;
+    const wrap = el.closest('.code-wrap');
+    const btn = wrap && wrap.querySelector('.copy-btn');
     if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1500); }
   }).catch(() => {});
 };
@@ -218,21 +246,21 @@ function addMessage(role, content, id, isGreeting) {
   if (role === 'user') {
     const editBtn = document.createElement('button');
     editBtn.className = 'msg-action-btn';
-    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    editBtn.innerHTML = ICON_EDIT;
     editBtn.title = 'Edit message';
     editBtn.onclick = () => editUserMessage(id);
     actions.appendChild(editBtn);
   } else if (role === 'assistant' && !isGreeting) {
     const regenBtn = document.createElement('button');
     regenBtn.className = 'msg-action-btn';
-    regenBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+    regenBtn.innerHTML = ICON_REGEN;
     regenBtn.title = 'Regenerate';
     regenBtn.onclick = () => regenerateResponse(id);
     actions.appendChild(regenBtn);
 
     const editBtn = document.createElement('button');
     editBtn.className = 'msg-action-btn';
-    editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    editBtn.innerHTML = ICON_EDIT;
     editBtn.title = 'Edit response';
     editBtn.onclick = () => editAssistantMessage(id);
     actions.appendChild(editBtn);
@@ -241,7 +269,7 @@ function addMessage(role, content, id, isGreeting) {
     if (msg && msg._versions && msg._versions.length > 1) {
       const prevBtn = document.createElement('button');
       prevBtn.className = 'msg-action-btn';
-      prevBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>';
+      prevBtn.innerHTML = ICON_PREV;
       prevBtn.title = 'Previous version';
       prevBtn.onclick = () => cycleVersion(id, -1);
       actions.appendChild(prevBtn);
@@ -253,7 +281,7 @@ function addMessage(role, content, id, isGreeting) {
 
       const nextBtn = document.createElement('button');
       nextBtn.className = 'msg-action-btn';
-      nextBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
+      nextBtn.innerHTML = ICON_NEXT;
       nextBtn.title = 'Next version';
       nextBtn.onclick = () => cycleVersion(id, 1);
       actions.appendChild(nextBtn);
@@ -427,21 +455,21 @@ function findNextAssistant(idx) {
 }
 
 function buildSendHistory(upToIdx) {
-  const char = characters[currentChar];
+  const char = characters[currentChar] || {};
   const result = [];
   for (let i = 0; i <= upToIdx; i++) {
     const m = history[i];
-    if (char && m.role === 'assistant' && m.content === char.greeting) continue;
+    if (m.role === 'assistant' && char.greeting && m.content === char.greeting) continue;
     result.push({ role: m.role, content: m.content });
   }
   return result;
 }
 
 function makeSendBody(msg, sendHistory, withImage) {
-  const char = characters[currentChar];
+  const char = characters[currentChar] || {};
   const body = {
     message: msg,
-    character: { name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
+    character: { name: char.name || 'Assistant', greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
     history: sendHistory,
   };
   if (withImage && imageData) {
@@ -461,15 +489,18 @@ async function streamResponse(assistId, body) {
     if (!res.ok) throw new Error('Request failed');
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
+    let buf = '';
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      const text = decoder.decode(value, { stream: true });
-      const lines = text.split('\n');
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
       for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
+        const t = line.trim();
+        if (!t.startsWith('data: ')) continue;
         try {
-          const chunk = JSON.parse(line.slice(6));
+          const chunk = JSON.parse(t.slice(6));
           if (chunk.content) {
             full += chunk.content;
             updateMsgText(assistId, full);
@@ -479,7 +510,7 @@ async function streamResponse(assistId, body) {
       }
     }
   } catch (e) {
-    full = 'Error: ' + e.message;
+    full = full || 'Error: ' + e.message;
   }
   return full;
 }
@@ -547,6 +578,7 @@ async function regenerateAfter(userIdx) {
 
   const newId = uid();
   const streamDiv = addMessage('assistant', '', newId, false);
+  streamDiv.querySelector('.msg-text').classList.add('streaming');
   const entry = { role: 'assistant', content: '', _id: newId, _versions: [], _currentVersion: 0, _streaming: true };
   history.splice(userIdx + 1, 0, entry);
   sending = true;
@@ -580,21 +612,21 @@ function buildActions(id) {
   if (msg.role === 'user') {
     const btn = document.createElement('button');
     btn.className = 'msg-action-btn';
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    btn.innerHTML = ICON_EDIT;
     btn.title = 'Edit';
     btn.onclick = () => editUserMessage(id);
     div.appendChild(btn);
   } else if (!msg._greeting) {
     const regen = document.createElement('button');
     regen.className = 'msg-action-btn';
-    regen.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+    regen.innerHTML = ICON_REGEN;
     regen.title = 'Regenerate';
     regen.onclick = () => regenerateResponse(id);
     div.appendChild(regen);
 
     const edit = document.createElement('button');
     edit.className = 'msg-action-btn';
-    edit.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    edit.innerHTML = ICON_EDIT;
     edit.title = 'Edit';
     edit.onclick = () => editAssistantMessage(id);
     div.appendChild(edit);
@@ -602,7 +634,7 @@ function buildActions(id) {
     if (msg._versions && msg._versions.length > 1) {
       const prev = document.createElement('button');
       prev.className = 'msg-action-btn';
-      prev.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>';
+      prev.innerHTML = ICON_PREV;
       prev.title = 'Previous';
       prev.onclick = () => cycleVersion(id, -1);
       div.appendChild(prev);
@@ -614,7 +646,7 @@ function buildActions(id) {
 
       const next = document.createElement('button');
       next.className = 'msg-action-btn';
-      next.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
+      next.innerHTML = ICON_NEXT;
       next.title = 'Next';
       next.onclick = () => cycleVersion(id, 1);
       div.appendChild(next);
@@ -624,17 +656,47 @@ function buildActions(id) {
 }
 
 // ─── Image Upload ───
+const MAX_IMAGE_DIM = 1024;
+
+function compressImageFile(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onerror = () => resolve(null);
+    reader.onload = (e) => {
+      const raw = e.target.result;
+      const img = new Image();
+      img.onerror = () => resolve(raw);
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, MAX_IMAGE_DIM / Math.max(img.width, img.height));
+          if (scale >= 1 && raw.length < 400000) { resolve(raw); return; }
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const cctx = canvas.getContext('2d');
+          cctx.fillStyle = '#0a0a0b';
+          cctx.fillRect(0, 0, canvas.width, canvas.height);
+          cctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        } catch (err) {
+          resolve(raw);
+        }
+      };
+      img.src = raw;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 imageUploadBtn.onclick = () => imageInput.click();
-imageInput.onchange = () => {
+imageInput.onchange = async () => {
   const file = imageInput.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    imageData = e.target.result;
-    previewImg.src = imageData;
-    imagePreview.classList.remove('hidden');
-  };
-  reader.readAsDataURL(file);
+  const dataUrl = await compressImageFile(file);
+  if (!dataUrl) return;
+  imageData = dataUrl;
+  previewImg.src = dataUrl;
+  imagePreview.classList.remove('hidden');
 };
 clearImageBtn.onclick = () => {
   imageData = null;
@@ -651,7 +713,7 @@ chatInput.onkeydown = (e) => {
 
 async function sendMessage() {
   const msg = chatInput.value.trim();
-  if (!msg || sending || !currentChar) return;
+  if (!msg || sending || !currentChar || !characters[currentChar]) return;
   chatInput.value = '';
   sending = true;
   sendBtn.disabled = true;
@@ -671,8 +733,10 @@ async function sendMessage() {
   const sendHistory = buildSendHistory(history.length - 1);
   const assistId = uid();
   addMessage('assistant', '', assistId, false);
-  const assistEntry = { role: 'assistant', content: '', _id: assistId, _versions: [], _currentVersion: 0 };
+  const assistEntry = { role: 'assistant', content: '', _id: assistId, _versions: [], _currentVersion: 0, _streaming: true };
   history.push(assistEntry);
+  const placeholder = messagesEl.querySelector(`[data-msg-id="${assistId}"] .msg-text`);
+  if (placeholder) placeholder.classList.add('streaming');
 
   const body = makeSendBody(msg, sendHistory, hasImage);
   const full = await streamResponse(assistId, body);
@@ -682,6 +746,7 @@ async function sendMessage() {
   assistEntry.content = full;
   assistEntry._versions = [full];
   assistEntry._currentVersion = 0;
+  delete assistEntry._streaming;
   updateMsgText(assistId, full);
 
   const el = messagesEl.querySelector(`[data-msg-id="${assistId}"]`);
@@ -703,31 +768,48 @@ async function sendMessage() {
 function saveCurrentChat() {
   if (!currentChatId || !currentChar) return;
   const firstUser = history.find(m => m.role === 'user');
+  const messages = history.map(m => {
+    const { _streaming, ...rest } = m;
+    return rest;
+  });
   upsertChat({
     id: currentChatId,
     character: currentChar,
     title: firstUser ? firstUser.content.slice(0, 60) : 'Chat',
-    messages: history,
+    messages,
     updated_at: new Date().toISOString(),
   });
 }
 
 resetBtn.onclick = () => {
+  if (!currentChar) return;
+  if (currentChatId && !confirm('Clear this chat? This cannot be undone.')) return;
   if (currentChatId) deleteChat(currentChatId);
-  if (currentChar) selectCharacter(currentChar);
+  selectCharacter(currentChar);
 };
 
 $('newChatBtn').onclick = () => {
+  if (!currentChar || !characters[currentChar]) return;
   currentChatId = null;
   history = [];
   messagesEl.innerHTML = '';
   emptyState.classList.add('hidden');
   inputArea.classList.remove('hidden');
-  if (currentChar) selectCharacter(currentChar);
+  selectCharacter(currentChar);
 };
 
-$('historyBtn').onclick = () => $('historyArea').classList.remove('hidden');
+$('historyBtn').onclick = () => { renderHistoryPanel(); $('historyArea').classList.remove('hidden'); };
 $('closeHistoryBtn').onclick = () => $('historyArea').classList.add('hidden');
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('charModal').classList.contains('hidden')) { closeCharModal(); return; }
+  if (!$('historyArea').classList.contains('hidden')) $('historyArea').classList.add('hidden');
+});
+
+$('charModal').addEventListener('mousedown', (e) => {
+  if (e.target === $('charModal')) closeCharModal();
+});
 
 function renderHistoryPanel() {
   const list = $('historyList');
@@ -754,13 +836,16 @@ function loadChatById(chatId) {
   if (!chat) return;
   currentChatId = chat.id;
   currentChar = chat.character;
-  history = (chat.messages || []).map(m => ({
-    ...m,
-    _versions: m._versions || [m.content],
-    _currentVersion: m._currentVersion || 0,
-    _id: m._id || uid(),
-    _greeting: m._greeting || false,
-  }));
+  history = (chat.messages || []).map(m => {
+    const { _streaming, ...rest } = m;
+    return {
+      ...rest,
+      _versions: m._versions || [m.content],
+      _currentVersion: m._currentVersion || 0,
+      _id: m._id || uid(),
+      _greeting: m._greeting || false,
+    };
+  });
   messagesEl.innerHTML = '';
   emptyState.classList.add('hidden');
   inputArea.classList.remove('hidden');
@@ -801,20 +886,23 @@ function charModalInit() {
   $('cmDeleteBtn').onclick = deleteCharacter;
   $('cmSaveBtn').onclick = saveCharacter;
   cmAvatarBtn.onclick = () => cmAvatarInput.click();
-  cmAvatarInput.onchange = () => {
+  cmAvatarInput.onchange = async () => {
     const file = cmAvatarInput.files[0];
     if (!file) return;
-    if (file.size > 1000000) {
-      alert('Image too large (max 1MB)');
+    if (!file.type.startsWith('image/')) {
+      alert('Please choose an image file');
       cmAvatarInput.value = '';
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      newCharAvatar = e.target.result;
-      updateAvatarPreview();
-    };
-    reader.readAsDataURL(file);
+    const dataUrl = await compressImageFile(file);
+    if (!dataUrl) {
+      alert('Could not read that image');
+      cmAvatarInput.value = '';
+      return;
+    }
+    newCharAvatar = dataUrl;
+    updateAvatarPreview();
+    cmAvatarInput.value = '';
   };
   cmAvatarClear.onclick = () => {
     newCharAvatar = null;
@@ -834,15 +922,17 @@ function openCharModal(editingKey) {
   $('charModalTitle').textContent = char ? 'Edit Character' : 'New Character';
   $('cmSaveBtn').textContent = char ? 'Save' : 'Create';
   $('cmDeleteBtn').classList.toggle('hidden', !char);
-  if (char && char.avatar) newCharAvatar = char.avatar;
+  if (char && char.avatar) newCharAvatar = safeAvatar(char.avatar) || null;
   updateAvatarPreview();
   $('charModal').classList.remove('hidden');
   cmNameEl.focus();
 }
 
 function updateAvatarPreview() {
-  if (newCharAvatar) {
-    cmAvatarPreview.style.backgroundImage = `url("${newCharAvatar}")`;
+  const safe = safeAvatar(newCharAvatar || '');
+  if (safe) {
+    newCharAvatar = safe;
+    cmAvatarPreview.style.backgroundImage = `url("${safe.replace(/"/g, '%22')}")`;
     cmAvatarPreview.classList.remove('empty');
   } else {
     cmAvatarPreview.style.backgroundImage = '';
@@ -917,11 +1007,14 @@ async function deleteCharacter() {
       throw new Error(data.error || 'delete failed');
     }
     delete characters[currentEditCharKey];
+    saveData(loadData().filter(c => c.character !== currentEditCharKey));
     if (currentChar === currentEditCharKey) {
       currentChar = null;
       currentChatId = null;
       history = [];
       messagesEl.innerHTML = '';
+      emptyState.classList.remove('hidden');
+      inputArea.classList.add('hidden');
       charName.textContent = 'Select a Character';
       charGreeting.textContent = '';
       setChatAvatar(null);
@@ -929,6 +1022,7 @@ async function deleteCharacter() {
     closeCharModal();
     renderSidebar();
     renderCharGrid();
+    renderHistoryPanel();
   } catch (e) {
     alert('Could not delete character: ' + e.message);
   }

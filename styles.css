@@ -46,6 +46,7 @@ input, textarea, button { font-family: inherit; }
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+a.logo:hover { text-decoration: none; opacity: 0.85; }
 .sidebar-section-label {
   font-size: 11px;
   font-weight: 600;
@@ -181,6 +182,7 @@ input, textarea, button { font-family: inherit; }
 }
 .char-grid::-webkit-scrollbar { display: none; }
 .char-card {
+  position: relative;
   background: #18181b;
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 10px;
@@ -212,7 +214,6 @@ input, textarea, button { font-family: inherit; }
   border: 1px solid rgba(255,255,255,0.12);
   color: rgba(255,255,255,0.6);
 }
-.char-card { position: relative; }
 .char-edit-btn:hover { color: #3b82f6; background: rgba(0,0,0,0.8); }
 
 /* ── Messages ── */
@@ -826,4 +827,18 @@ input, textarea, button { font-family: inherit; }
   border-radius: 10px;
   margin: 6px 0;
   display: block;
+}
+
+/* ── Accessibility ── */
+:focus-visible {
+  outline: 2px solid rgba(59,130,246,0.7);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

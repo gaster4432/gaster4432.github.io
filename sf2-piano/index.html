@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Upload any SoundFont (.sf2) and play it as a piano in the browser. Keyboard, mouse, and multi-touch supported.">
+<meta name="theme-color" content="#0a0a0b">
+<meta name="color-scheme" content="dark">
 <title>SF2 Piano</title>
 <link rel="icon" type="image/x-icon" href="../favicon.ico">
 <style>
@@ -10,9 +13,11 @@
 html, body { height: 100%; background: #0a0a0b; color: #e2e8f0; font-family: system-ui, sans-serif; overflow: hidden; }
 #app { display: flex; flex-direction: column; height: 100%; }
 
-header { text-align: center; padding: 16px 20px; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
+header { position: relative; text-align: center; padding: 16px 20px; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
 header h1 { font-size: 20px; font-weight: 600; background: linear-gradient(135deg, #3b82f6, #14b8a6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 header p { font-size: 13px; color: rgba(255,255,255,0.3); margin-top: 2px; }
+.home-link { position: absolute; top: 50%; right: 16px; transform: translateY(-50%); font-size: 12px; color: rgba(255,255,255,0.3); text-decoration: none; padding: 4px 10px; border-radius: 8px; transition: all 0.15s; }
+.home-link:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.06); }
 
 #controls { display: flex; gap: 10px; padding: 10px 20px; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
 #controls label { font-size: 12px; color: rgba(255,255,255,0.4); }
@@ -62,6 +67,7 @@ select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,
   <header>
     <h1>SF2 Piano</h1>
     <p>upload a SoundFont (.sf2) and play</p>
+    <a class="home-link" href="/">← home</a>
   </header>
 
   <div id="controls">
@@ -72,9 +78,6 @@ select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,
       <label>Vol</label>
       <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.7">
     </div>
-    <select id="presetSelect" disabled style="display:none">
-      <option value="0,0">Acoustic Grand Piano</option>
-    </select>
     <span id="status"></span>
   </div>
 
@@ -111,7 +114,7 @@ const NOTES = [
 
 const BLACK_SET = new Set([49, 51, 54, 56, 58, 61, 63, 66, 68, 70, 73, 75, 78, 80, 82]);
 
-// Keyboard mapping (lower row Z-M, upper row Q-U, plus ,. for C#6/D#6)
+// Keyboard mapping (lower row Z-M, upper row Q-U)
 const KEY_MAP = {
   'z': 48, 's': 49, 'x': 50, 'd': 51, 'c': 52, 'v': 53, 'g': 54, 'b': 55, 'h': 56, 'n': 57, 'j': 58, 'm': 59,
   'q': 60, '2': 61, 'w': 62, '3': 63, 'e': 64, 'r': 65, '5': 66, 't': 67, '6': 68, 'y': 69, '7': 70, 'u': 71,
@@ -128,6 +131,7 @@ let sfData = null;
 let sfId = null;
 
 const $ = id => document.getElementById(id);
+const pianoEl = $('piano');
 
 // ─── Piano UI ───
 // ─── Pointer tracking for swipe & multitouch ───
@@ -142,7 +146,7 @@ function keyFromPoint(x, y) {
 }
 
 function buildPiano() {
-  const piano = $('piano');
+  const piano = pianoEl;
   piano.innerHTML = '';
   const whiteKeys = [];
 
@@ -247,11 +251,18 @@ function buildPiano() {
   });
 }
 
+function unlockAudio() {
+  if (audioContext && audioContext.state === 'suspended') {
+    audioContext.resume().catch(() => {});
+  }
+}
+
 function noteOn(midi) {
   if (!loaded || !synth) return;
+  unlockAudio();
   if (activeNotes.has(midi)) return;
   activeNotes.add(midi);
-  const el = piano.querySelector(`[data-note="${midi}"]`);
+  const el = pianoEl.querySelector(`[data-note="${midi}"]`);
   if (el) el.classList.add('active');
   try { synth.midiNoteOn(0, midi, 100); } catch(e) {}
 }
@@ -260,19 +271,29 @@ function noteOff(midi) {
   if (!synth) return;
   if (!activeNotes.has(midi)) return;
   activeNotes.delete(midi);
-  const el = piano.querySelector(`[data-note="${midi}"]`);
+  const el = pianoEl.querySelector(`[data-note="${midi}"]`);
   if (el) el.classList.remove('active');
   try { synth.midiNoteOff(0, midi); } catch(e) {}
 }
 
+function allNotesOff() {
+  for (const n of Array.from(activeNotes)) noteOff(n);
+  mouseNote = null;
+  touchNotes.clear();
+}
+window.addEventListener('blur', allNotesOff);
+document.addEventListener('visibilitychange', () => { if (document.hidden) allNotesOff(); });
+pianoEl.addEventListener('contextmenu', e => e.preventDefault());
+
 // ─── Keyboard ───
 document.addEventListener('keydown', e => {
-  if (e.repeat) return;
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === ' ') { e.preventDefault(); return; }
   if (k in KEY_MAP) { noteOn(KEY_MAP[k]); e.preventDefault(); }
 });
 document.addEventListener('keyup', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k in KEY_MAP) { noteOff(KEY_MAP[k]); e.preventDefault(); }
 });
@@ -293,6 +314,7 @@ async function getCachedSF2() {
   const hit = await cache.match(SF2_URL);
   if (hit) return await hit.arrayBuffer();
   const resp = await fetch(SF2_URL);
+  if (!resp.ok) throw new Error('fetch failed: ' + resp.status);
   const buf = await resp.arrayBuffer();
   cache.put(SF2_URL, new Response(buf));
   return buf;
@@ -338,6 +360,8 @@ $('fileInput').onchange = async () => {
 };
 
 // Drag and drop
+// Prevent files dropped outside the drop box from navigating the page away
+['dragover', 'drop'].forEach(type => window.addEventListener(type, e => e.preventDefault()));
 const dropBox = $('dropBox');
 dropBox.onclick = () => $('fileInput').click();
 dropBox.ondragover = e => { e.preventDefault(); dropBox.classList.add('dragover'); };

@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Anonymous suggestion box — drop an idea, see what everyone else has been thinking.">
+<meta name="theme-color" content="#0a0a0b">
+<meta name="color-scheme" content="dark">
 <title>Suggestion Box</title>
 <link rel="icon" type="image/x-icon" href="favicon.ico">
 <style>
@@ -151,7 +154,10 @@ function escapeHtml(s) {
 }
 
 function formatDate(d) {
-  const date = new Date(d);
+  let s = String(d);
+  if (!/[zZ]$/.test(s) && !/[+-]\d\d:\d\d$/.test(s)) s = s.replace(' ', 'T') + 'Z';
+  const date = new Date(s);
+  if (isNaN(date.getTime())) return '';
   const now = new Date();
   const diff = (now - date) / 1000;
   if (diff < 60) return 'just now';
@@ -171,7 +177,7 @@ function render(suggestions) {
     const div = document.createElement('div');
     div.className = 'suggestion';
     div.innerHTML = `<span class="text">${escapeHtml(s.text)}</span>
-      <span class="date">${formatDate(s.created_at + 'Z')}</span>`;
+      <span class="date">${formatDate(s.created_at)}</span>`;
     listEl.appendChild(div);
   }
 }
@@ -192,6 +198,7 @@ async function send() {
   const text = inputEl.value.trim();
   if (!text) return;
   sendBtn.disabled = true;
+  statusEl.textContent = '';
   try {
     const res = await fetch(API, {
       method: 'POST',
@@ -201,6 +208,9 @@ async function send() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'send failed');
     inputEl.value = '';
+    autoResize();
+    statusEl.textContent = 'Sent — thanks!';
+    setTimeout(() => { if (statusEl.textContent.startsWith('Sent')) statusEl.textContent = ''; }, 4000);
     await load();
   } catch (e) {
     statusEl.textContent = 'Could not send: ' + e.message;
@@ -208,6 +218,12 @@ async function send() {
   sendBtn.disabled = false;
 }
 
+function autoResize() {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+}
+
+inputEl.addEventListener('input', autoResize);
 inputEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
 });

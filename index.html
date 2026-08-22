@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>gaster4432</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="gaster4432's projects: AI chat with characters, bouncing cat screensaver, SF2 piano, and a suggestion box.">
+<meta name="theme-color" content="#0a0a0b">
+<meta name="color-scheme" content="dark">
+<title>gaster4432 · projects & things</title>
 <link rel="icon" type="image/x-icon" href="favicon.ico">
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -19,7 +22,7 @@
 
     <div class="project-grid">
       <a href="/cf/" class="project-card">
-        <div class="project-icon">
+        <div class="project-icon" aria-hidden="true">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         </div>
         <div class="project-info">
@@ -33,7 +36,7 @@
       </a>
 
       <a href="/bounce.html" class="project-card">
-        <div class="project-icon">
+        <div class="project-icon" aria-hidden="true">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
         </div>
         <div class="project-info">
@@ -47,7 +50,7 @@
       </a>
 
       <a href="/sf2-piano/" class="project-card">
-        <div class="project-icon">
+        <div class="project-icon" aria-hidden="true">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="8" y1="4" x2="8" y2="20"/><line x1="16" y1="4" x2="16" y2="20"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
         </div>
         <div class="project-info">
@@ -61,7 +64,7 @@
       </a>
 
       <a href="/suggestions.html" class="project-card">
-        <div class="project-icon">
+        <div class="project-icon" aria-hidden="true">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
         </div>
         <div class="project-info">
@@ -84,20 +87,31 @@
 <div id="homeCat" style="position:fixed;pointer-events:none;z-index:0;font-size:24px;opacity:0.12;transition:opacity 0.3s" aria-hidden="true">🐱</div>
 
 <script>
-var hc = document.getElementById('homeCat');
-if (hc) {
-  var cx = Math.random() * window.innerWidth, cy = Math.random() * window.innerHeight;
+(function() {
+  var hc = document.getElementById('homeCat');
+  if (!hc) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    hc.style.display = 'none';
+    return;
+  }
+  var size = 30;
+  var cx = Math.random() * Math.max(1, window.innerWidth - size);
+  var cy = Math.random() * Math.max(1, window.innerHeight - size);
   var cvx = 0.5 + Math.random() * 0.5, cvy = 0.5 + Math.random() * 0.5;
-  hc.style.left = cx + 'px'; hc.style.top = cy + 'px';
+  hc.style.left = '0';
+  hc.style.top = '0';
+  function place() { hc.style.transform = 'translate(' + cx + 'px,' + cy + 'px)'; }
+  place();
   (function animCat() {
     cx += cvx; cy += cvy;
-    if (cx < 0 || cx > window.innerWidth - 30) cvx = -cvx;
-    if (cy < 0 || cy > window.innerHeight - 30) cvy = -cvy;
-    hc.style.left = cx + 'px'; hc.style.top = cy + 'px';
+    var maxX = window.innerWidth - size, maxY = window.innerHeight - size;
+    if (cx < 0 || cx > maxX) { cvx = -cvx; cx = Math.max(0, Math.min(cx, maxX)); }
+    if (cy < 0 || cy > maxY) { cvy = -cvy; cy = Math.max(0, Math.min(cy, maxY)); }
+    place();
     requestAnimationFrame(animCat);
   })();
-  document.addEventListener('mousemove', function(){ hc.style.opacity = '0.18'; });
-}
+  document.addEventListener('mousemove', function(){ hc.style.opacity = '0.18'; }, { passive: true });
+})();
 
 (function() {
   var count = parseInt(localStorage.getItem('visit_count') || '0', 10) + 1;

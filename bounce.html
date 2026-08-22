@@ -2,8 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="An infinite bouncing cat screensaver with adjustable speed, size, and trail. Change the emoji, go wild.">
+<meta name="theme-color" content="#0a0a0b">
+<meta name="color-scheme" content="dark">
 <title>Bouncing Cat</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
@@ -78,6 +82,7 @@ html, body {
 <div id="info">move mouse for controls · double-click reset</div>
 <canvas id="canvas"></canvas>
 <div id="controls">
+  <button id="homeBtn" title="Back to home">⌂</button>
   <button id="toggleBtn">Pause</button>
   <button id="speedDown">−</button>
   <input type="range" id="speedSlider" min="0.5" max="5" step="0.5" value="2">
@@ -105,6 +110,11 @@ let emoji = '🐱';
 let baseSize = 36;
 
 let balls = [];
+const MAX_BALLS = 150;
+const speedSlider = document.getElementById('speedSlider');
+const sizeSlider = document.getElementById('sizeSlider');
+const countLabel = document.getElementById('countLabel');
+let curSpeed = parseFloat(speedSlider.value) * 1.5;
 
 function createBall(x, y, vx, vy, size) {
   return { x, y, vx, vy, size, emoji };
@@ -116,14 +126,13 @@ function addBall(x, y, vx, vy, size) {
 
 function initBalls(count) {
   balls = [];
-  const speed = parseFloat(document.getElementById('speedSlider').value) * 1.5;
   for (let i = 0; i < count; i++) {
     const angle = Math.random() * 2 * Math.PI;
     addBall(
       W / 2 + (Math.random() - 0.5) * 100,
       H / 2 + (Math.random() - 0.5) * 100,
-      Math.cos(angle) * speed,
-      Math.sin(angle) * speed,
+      Math.cos(angle) * curSpeed,
+      Math.sin(angle) * curSpeed,
       baseSize
     );
   }
@@ -132,7 +141,6 @@ initBalls(1);
 
 function update() {
   if (paused) return;
-  const speed = parseFloat(document.getElementById('speedSlider').value) * 1.5;
   const newBalls = [];
   for (const b of balls) {
     b.x += b.vx;
@@ -144,11 +152,13 @@ function update() {
     if (b.y + b.size / 2 > H) { b.y = H - b.size / 2; b.vy = -b.vy; hit = true; }
     if (hit) {
       const angle = Math.random() * 2 * Math.PI;
-      newBalls.push(createBall(b.x, b.y, Math.cos(angle) * speed, Math.sin(angle) * speed, baseSize));
+      if (balls.length + newBalls.length < MAX_BALLS) {
+        newBalls.push(createBall(b.x, b.y, Math.cos(angle) * curSpeed, Math.sin(angle) * curSpeed, baseSize));
+      }
     }
   }
   for (const nb of newBalls) balls.push(nb);
-  document.getElementById('countLabel').textContent = balls.length;
+  countLabel.textContent = balls.length;
 }
 
 function draw() {
@@ -174,25 +184,25 @@ const $ = id => document.getElementById(id);
 
 $('toggleBtn').onclick = () => { paused = !paused; $('toggleBtn').textContent = paused ? 'Play' : 'Pause'; };
 
-const speedSlider = $('speedSlider');
-speedSlider.oninput = () => {
-  const s = parseFloat(speedSlider.value) * 1.5;
+function applySpeed() {
+  curSpeed = parseFloat(speedSlider.value) * 1.5;
   for (const b of balls) {
     const a = Math.atan2(b.vy, b.vx);
-    b.vx = Math.cos(a) * s;
-    b.vy = Math.sin(a) * s;
+    b.vx = Math.cos(a) * curSpeed;
+    b.vy = Math.sin(a) * curSpeed;
   }
-};
-$('speedUp').onclick = () => speedSlider.value = Math.min(5, parseFloat(speedSlider.value) + 0.5);
-$('speedDown').onclick = () => speedSlider.value = Math.max(0.5, parseFloat(speedSlider.value) - 0.5);
+}
+speedSlider.oninput = applySpeed;
+$('speedUp').onclick = () => { speedSlider.value = Math.min(5, parseFloat(speedSlider.value) + 0.5); applySpeed(); };
+$('speedDown').onclick = () => { speedSlider.value = Math.max(0.5, parseFloat(speedSlider.value) - 0.5); applySpeed(); };
 
-const sizeSlider = $('sizeSlider');
-sizeSlider.oninput = () => {
+function applySize() {
   baseSize = parseInt(sizeSlider.value);
   for (const b of balls) b.size = baseSize;
-};
-$('sizeUp').onclick = () => sizeSlider.value = Math.min(80, parseInt(sizeSlider.value) + 2);
-$('sizeDown').onclick = () => sizeSlider.value = Math.max(16, parseInt(sizeSlider.value) - 2);
+}
+sizeSlider.oninput = applySize;
+$('sizeUp').onclick = () => { sizeSlider.value = Math.min(80, parseInt(sizeSlider.value) + 2); applySize(); };
+$('sizeDown').onclick = () => { sizeSlider.value = Math.max(16, parseInt(sizeSlider.value) - 2); applySize(); };
 
 $('emojiInput').oninput = () => {
   emoji = $('emojiInput').value || '🐱';
@@ -206,19 +216,22 @@ $('trailToggle').onclick = () => {
 };
 
 $('resetBtn').onclick = () => initBalls(1);
+$('homeBtn').onclick = () => { location.href = '/'; };
 
 canvas.ondblclick = () => initBalls(1);
 
 // Hide controls
 let hideTimer;
-document.onmousemove = () => {
+function wakeControls() {
   $('controls').style.opacity = '1';
   $('info').style.opacity = '0';
   clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
     if (!$('controls').matches(':hover')) $('controls').style.opacity = '0';
   }, 3000);
-};
+}
+document.onmousemove = wakeControls;
+document.addEventListener('touchstart', wakeControls, { passive: true });
 </script>
 </body>
 </html>

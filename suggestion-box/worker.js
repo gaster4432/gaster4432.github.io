@@ -48,6 +48,10 @@ export default {
 
     const m = url.pathname.match(/^\/api\/suggestions\/([\w-]+)$/);
     if (m && request.method === 'DELETE') {
+      // Optional: set ADMIN_KEY secret to lock deletion behind an auth header
+      if (env.ADMIN_KEY && request.headers.get('Authorization') !== `Bearer ${env.ADMIN_KEY}`) {
+        return json({ error: 'unauthorized' }, 401);
+      }
       const id = m[1];
       const existing = await env.DB.prepare('SELECT id FROM suggestions WHERE id = ?').bind(id).first();
       if (!existing) return json({ error: 'not found' }, 404);

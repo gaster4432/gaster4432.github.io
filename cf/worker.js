@@ -20,6 +20,16 @@ function cleanStr(v, max) {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
 }
 
+// Only accept safe avatar schemes from API clients
+function cleanAvatar(v) {
+  if (typeof v !== 'string') return '';
+  const s = v.trim();
+  if (!s) return '';
+  if (/^data:image\//i.test(s)) return s.slice(0, 1500000);
+  if (/^https?:\/\//i.test(s)) return s.slice(0, 2000);
+  return '';
+}
+
 // ─── Character CRUD ───
 async function handleCharacters(request, env) {
   const url = new URL(request.url);
@@ -38,7 +48,7 @@ async function handleCharacters(request, env) {
     if (!name) return json({ error: 'name required' }, 400);
     const greeting = cleanStr(body.greeting, 2000);
     const systemPrompt = cleanStr(body.systemPrompt, 20000);
-    const avatar = typeof body.avatar === 'string' ? body.avatar.slice(0, 1500000) : '';
+    const avatar = cleanAvatar(body.avatar);
     const id = 'char_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
     await env.DB.prepare(
       'INSERT INTO characters (id, name, greeting, systemPrompt, avatar) VALUES (?, ?, ?, ?, ?)'
@@ -50,7 +60,7 @@ async function handleCharacters(request, env) {
   if (m) {
     const id = m[1];
 
-if (request.method === 'PUT') {
+    if (request.method === 'PUT') {
       let body = {};
       try { body = await request.json(); } catch (e) { return json({ error: 'invalid JSON' }, 400); }
       const existing = await env.DB.prepare('SELECT * FROM characters WHERE id = ?').bind(id).first();
@@ -59,7 +69,7 @@ if (request.method === 'PUT') {
         name: cleanStr(body.name, 200) || existing.name,
         greeting: typeof body.greeting === 'string' ? cleanStr(body.greeting, 2000) : existing.greeting,
         systemPrompt: typeof body.systemPrompt === 'string' ? cleanStr(body.systemPrompt, 20000) : existing.systemPrompt,
-        avatar: typeof body.avatar === 'string' ? body.avatar.slice(0, 1500000) : existing.avatar,
+        avatar: body.avatar !== undefined ? cleanAvatar(body.avatar) : existing.avatar,
       };
       if (!next.name) return json({ error: 'name required' }, 400);
       await env.DB.prepare(
@@ -96,26 +106,43 @@ export default {
       return json({ error: 'Not found' }, 404);
     }
 
-    const { message, character, history, image } = await request.json();
+    let payload;
+    try {
+      payload = await request.json();
+    } catch (e) {
+      return json({ error: 'invalid JSON' }, 400);
+    }
 
-    if (!character) {
+    const { message, character, image } = payload;
+
+    if (!character || typeof character !== 'object') {
       return json({ error: 'character required' }, 400);
     }
 
-    if (!message) {
+    const msgText = cleanStr(message, 16000);
+    if (!msgText) {
       return json({ error: 'message required' }, 400);
     }
 
-    const greeting = character.greeting || '';
-    let sysPrompt = character.systemPrompt || `You are ${character.name || 'a helpful assistant'}.`;
+    // Sanitize conversation history before forwarding to the model
+    const sanitizedHistory = Array.isArray(payload.history)
+      ? payload.history
+          .slice(-80)
+          .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+          .map(m => ({ role: m.role, content: m.content.slice(0, 16000) }))
+      : [];
 
-    let userContent = message;
+    const greeting = cleanStr(character.greeting, 2000);
+    let sysPrompt = cleanStr(character.systemPrompt, 20000) || `You are ${cleanStr(character.name, 200) || 'a helpful assistant'}.`;
+
+    let userContent = msgText;
 
     // === IMAGE UNDERSTANDING ===
-    if (image) {
+    if (image && typeof image === 'string' && image.length <= 5242880) {
+      const visionModel = env.CF_VISION_MODEL || '@cf/mistralai/mistral-small-3.1-24b-instruct';
       try {
         const visionResp = await fetch(
-          `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai/run/@cf/mistralai/mistral-small-3.1-24b-instruct`,
+          `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai/run/${visionModel}`,
           {
             method: 'POST',
             headers: {
@@ -141,17 +168,17 @@ export default {
         if (visionResp.ok) {
           const visionData = await visionResp.json();
           const description = visionData.result?.response || "An image was provided.";
-          userContent = `${message}\n\n[Image Description]: ${description}`;
+          userContent = `${msgText}\n\n[Image Description]: ${description}`;
         }
       } catch (e) {
-        userContent = `${message}\n\n[Image could not be analyzed]`;
+        userContent = `${msgText}\n\n[Image could not be analyzed]`;
       }
     }
 
     // Build conversation
     const msgs = [{ role: 'system', content: sysPrompt }];
     if (greeting) msgs.push({ role: 'assistant', content: greeting });
-    for (const m of (history || [])) msgs.push(m);
+    for (const m of sanitizedHistory) msgs.push(m);
     msgs.push({ role: 'user', content: userContent });
 
     // Call main roleplay model
@@ -212,9 +239,11 @@ export default {
         }
         await writer.write(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
       } catch (e) {
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ error: e.message })}\n\n`));
+        try {
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ error: e.message })}\n\n`));
+        } catch {}
       } finally {
-        await writer.close();
+        try { await writer.close(); } catch {}
       }
     })();
 
