@@ -182,13 +182,74 @@
   var closeBtn = document.getElementById('modDialogClose');
   var lastFocus = null;
 
-  function startDownload() {
+  var blobCache = null;
+  var fetching = null;
+
+  function saveBlob(blob) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'Nexus-AI-Setup-1.0.0.exe';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
+  }
+
+  function fallbackDownload() {
     var a = document.createElement('a');
     a.href = INSTALLER_URL;
     a.download = 'Nexus-AI-Setup-1.0.0.exe';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  }
+
+  function setProgress(pct) {
+    btn.textContent = pct == null ? 'Download Nexus AI' : 'Downloading\u2026 ' + pct + '%';
+    if (pct == null) {
+      btn.insertAdjacentHTML('afterbegin', '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>');
+    }
+  }
+
+  function fetchInstaller() {
+    if (blobCache) return Promise.resolve(blobCache);
+    if (fetching) return fetching;
+    fetching = fetch(INSTALLER_URL).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var total = parseInt(res.headers.get('Content-Length') || '0', 10);
+      if (!res.body || !total) return res.blob();
+      var reader = res.body.getReader();
+      var chunks = [];
+      var received = 0;
+      function pump() {
+        return reader.read().then(function(result) {
+          if (result.done) {
+            blobCache = new Blob(chunks, { type: 'application/octet-stream' });
+            setProgress(null);
+            return blobCache;
+          }
+          chunks.push(result.value);
+          received += result.value.length;
+          setProgress(Math.min(99, Math.round((received / total) * 100)));
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function() {
+      fetching = null;
+      throw new Error('fetch failed');
+    });
+    return fetching;
+  }
+
+  function startDownload() {
+    if (blobCache) { saveBlob(blobCache); return; }
+    setProgress(0);
+    fetchInstaller().then(saveBlob).catch(function() {
+      setProgress(null);
+      fallbackDownload();
+    });
   }
 
   function openDialog() {
