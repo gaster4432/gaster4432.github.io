@@ -29,7 +29,7 @@
 
 <main class="nx-main">
   <section class="nx-hero">
-    <span class="welcome-badge">v1.0.0 &middot; Windows 10/11 &middot; 64-bit</span>
+    <span class="welcome-badge">&middot; Windows 10/11 &middot; 64-bit</span>
     <h1>Pkax</h1>
     <p class="nx-hero-sub">A fast, privacy-conscious Windows desktop chat client that puts Cloudflare Workers AI at your fingertips.</p>
     <div class="nx-hero-actions">
@@ -184,7 +184,7 @@
 
 <script>
 (function() {
-  var INSTALLER_URL = 'Pkax-Setup-1.0.0.exe';
+  var INSTALLER_URL = 'Pkax-Setup.exe';
   var btn = document.getElementById('downloadBtn');
   var continueBtn = document.getElementById('continueDownloadBtn');
   var overlay = document.getElementById('modDialogOverlay');
@@ -198,7 +198,7 @@
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'Pkax-Setup-1.0.0.exe';
+    a.download = 'Pkax-Setup.exe';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -208,7 +208,7 @@
   function fallbackDownload() {
     var a = document.createElement('a');
     a.href = INSTALLER_URL;
-    a.download = 'Pkax-Setup-1.0.0.exe';
+    a.download = 'Pkax-Setup.exe';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
