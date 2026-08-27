@@ -1027,6 +1027,31 @@ a.logo:hover { text-decoration: none; opacity: 0.85; }
 .nx-btn-discord:hover { background: #6873f5; transform: translateY(-2px); text-decoration: none; }
 .nx-btn-discord:active { transform: translateY(0); }
 
+.nx-source {
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015)),
+    rgba(255,255,255,0.02);
+  border-color: rgba(255,255,255,0.08);
+}
+.nx-btn-github {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 22px;
+  background: #24292f;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.nx-btn-github:hover { background: #2d333b; transform: translateY(-2px); text-decoration: none; }
+.nx-btn-github:active { transform: translateY(0); }
+
 .nx-modal-overlay {
   position: fixed;
   inset: 0;
@@ -1116,6 +1141,6 @@ a.logo:hover { text-decoration: none; opacity: 0.85; }
   .nx-btn-download, .nx-btn-discord-ghost { width: 100%; justify-content: center; }
   .nx-community { flex-direction: column; align-items: stretch; text-align: center; }
   .nx-community-text p { margin: 0 auto; }
-  .nx-btn-discord { justify-content: center; }
+  .nx-btn-discord, .nx-btn-github { justify-content: center; }
   .nx-modal { padding: 22px; }
 }
