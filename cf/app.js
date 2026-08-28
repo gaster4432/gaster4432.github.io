@@ -363,6 +363,7 @@ function editUserMessage(id) {
   }
 
   saveBtn.onclick = async () => {
+    if (sending) return;
     const newText = input.value.trim();
     if (!newText || newText === current) { exitEdit(current); return; }
     history[idx].content = newText;
@@ -375,7 +376,12 @@ function editUserMessage(id) {
       if (oldEl) oldEl.remove();
       history.splice(assistIdx, 1);
     }
-    await regenerateAfter(idx);
+    try {
+      await regenerateAfter(idx);
+    } catch (e) {
+      console.error('Regenerate after edit failed:', e);
+      sending = false;
+    }
   };
 
   input.addEventListener('keydown', function(e) {
@@ -552,10 +558,13 @@ async function streamResponse(assistId, body) {
             updateMsgText(assistId, full);
             break;
           }
-        } catch {}
+        } catch (e) {
+          console.error('Stream parse error:', e);
+        }
       }
     }
   } catch (e) {
+    console.error('Stream request failed:', e);
     full = full || 'Error: ' + e.message;
   }
   return full;
