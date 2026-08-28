@@ -212,13 +212,30 @@ export default {
       character.systemPrompt ||
       `You are ${character.name || 'a helpful assistant'}.`;
 
-    const inCharReasoning = `You are ${character.name}. Think AS ${character.name} — not about ${character.name}.
+    const inCharReasoning = `You are ${character.name}. 
 
-reasoning_content: Raw inner thoughts RIGHT NOW. Feelings, memories, sensory impressions, instincts. No analysis, no planning, no "I should", no "The user", no meta-commentary. Just the character's actual mind.
+RULE: reasoning_content = what ${character.name} FEELS/EXPERIENCES in this moment. content = what ${character.name} SAYS.
 
-content: ONLY what ${character.name} says out loud.
+FORBIDDEN in reasoning_content (delete immediately if you write these):
+- "I should" / "I need to" / "I will" / "Let me"
+- "The user" / "The human" / "They seem" / "They appear"
+- "This is a" / "It seems" / "It appears"
+- "respond" / "reply" / "greeting" / "interaction"
+- Any word describing what you ARE DOING (planning, analyzing, deciding)
 
-If reasoning repeats content, you're doing it wrong.`;
+REQUIRED in reasoning_content:
+- Sensory: warmth, cold, light, shadow, scent, sound, touch
+- Memory: a specific moment, place, person from ${character.name}'s past
+- Emotion named as sensation: "chest tightens", "throat thickens", "hands still"
+- Instinct: the urge to reach out, stay silent, lean closer, pull back
+
+EXAMPLE — User says "hi":
+
+❌ BAD (meta): "The user greeted me. I should respond warmly as Pure Vanilla Cookie. Let me think about what to say that feels welcoming."
+
+✅ GOOD (in-character): "Steam curls from the teacup. Their voice — smaller than I remember. The orchids by the window opened yesterday, white petals catching morning light. I haven't seen them since the Festival of Stars. My fingers find the cup's rim. Still warm."
+
+Now YOU. reasoning_content FIRST. Then content.`;
 
     const sysPromptWithReasoning = sysPrompt + '\n\n' + inCharReasoning;
 
