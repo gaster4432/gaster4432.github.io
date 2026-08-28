@@ -212,6 +212,10 @@ export default {
       character.systemPrompt ||
       `You are ${character.name || 'a helpful assistant'}.`;
 
+    const inCharReasoning = `You MUST reason and think as the character described in the system prompt above. All your reasoning, deliberation, and internal thought process must be done IN CHARACTER as this person — ${character.name || 'this character'}. Do not reason or think as an AI assistant. Think using their personality, knowledge, values, speech patterns, and worldview as described in the system prompt.`;
+
+    const sysPromptWithReasoning = sysPrompt + '\n\n' + inCharReasoning;
+
     let userContent = message;
 
     // ==========================================
@@ -282,7 +286,7 @@ export default {
     const msgs = [
       {
         role: 'system',
-        content: sysPrompt,
+        content: sysPromptWithReasoning,
       },
     ];
 
