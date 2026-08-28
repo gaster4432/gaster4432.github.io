@@ -480,6 +480,10 @@ function makeSendBody(msg, sendHistory, withImage) {
 
 async function streamResponse(assistId, body) {
   let full = '';
+  let reasoningText = '';
+  let reasoningEl = null;
+  let reasoningContentEl = null;
+
   try {
     const res = await fetch(`${WORKER_URL}/api/chat`, {
       method: 'POST',
@@ -501,10 +505,52 @@ async function streamResponse(assistId, body) {
         if (!t.startsWith('data: ')) continue;
         try {
           const chunk = JSON.parse(t.slice(6));
+
+          if (chunk.reasoning) {
+            reasoningText += chunk.reasoning;
+            if (!reasoningEl) {
+              const msgEl = messagesEl.querySelector(`[data-msg-id="${assistId}"]`);
+              if (msgEl) {
+                const existingReasoning = msgEl.querySelector('.reasoning-section');
+                if (existingReasoning) existingReasoning.remove();
+                const contentSpan = msgEl.querySelector('.msg-text');
+                reasoningEl = document.createElement('div');
+                reasoningEl.className = 'reasoning-section';
+                reasoningEl.innerHTML = `<span class="reasoning-toggle">💭 Reasoning</span><div class="reasoning-content hidden"></div>`;
+                const toggle = reasoningEl.querySelector('.reasoning-toggle');
+                const rc = reasoningEl.querySelector('.reasoning-content');
+                toggle.addEventListener('click', () => {
+                  rc.classList.toggle('hidden');
+                  toggle.classList.toggle('collapsed');
+                });
+                if (contentSpan) {
+                  msgEl.insertBefore(reasoningEl, contentSpan);
+                } else {
+                  msgEl.appendChild(reasoningEl);
+                }
+                reasoningContentEl = rc;
+              }
+            }
+            if (reasoningContentEl) {
+              reasoningContentEl.innerHTML = escapeHtml(reasoningText).replace(/\n/g, '<br>');
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+            }
+          }
+
           if (chunk.content) {
             full += chunk.content;
             updateMsgText(assistId, full);
             messagesEl.scrollTop = messagesEl.scrollHeight;
+          }
+
+          if (chunk.done) {
+            break;
+          }
+
+          if (chunk.error) {
+            full = chunk.error;
+            updateMsgText(assistId, full);
+            break;
           }
         } catch {}
       }
