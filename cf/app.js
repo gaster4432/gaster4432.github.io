@@ -230,11 +230,23 @@ window.copyCode = function(id) {
   }).catch(() => {});
 };
 
-function addMessage(role, content, id, isGreeting) {
+function addMessage(role, content, id, isGreeting, reasoning) {
   id = id || uid();
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   div.dataset.msgId = id;
+
+  const reasoningSection = document.createElement('div');
+  reasoningSection.className = 'reasoning-section';
+  if (!reasoning || !reasoning.trim()) {
+    reasoningSection.classList.add('hidden');
+  }
+  reasoningSection.innerHTML = `
+    <div class="reasoning-toggle">💭 Reasoning</div>
+    <div class="reasoning-content">${reasoning && reasoning.trim() ? escapeHtml(reasoning).replace(/\n/g, '<br>') : ''}</div>
+  `;
+  div.appendChild(reasoningSection);
+
   const contentSpan = document.createElement('span');
   contentSpan.className = 'msg-text';
   contentSpan.innerHTML = renderMsgContent(content);
@@ -242,6 +254,10 @@ function addMessage(role, content, id, isGreeting) {
 
   const actions = document.createElement('div');
   actions.className = 'msg-actions';
+
+  reasoningSection.querySelector('.reasoning-toggle').onclick = () => {
+    reasoningSection.classList.toggle('expanded');
+  };
 
   if (role === 'user') {
     const editBtn = document.createElement('button');
@@ -297,7 +313,7 @@ function addMessage(role, content, id, isGreeting) {
 function renderMessages() {
   messagesEl.innerHTML = '';
   for (const m of history) {
-    const div = addMessage(m.role, m.content, m._id, m._greeting);
+    const div = addMessage(m.role, m.content, m._id, m._greeting, m._reasoning);
     if (m.role === 'assistant' && m._streaming) {
       div.querySelector('.msg-text').classList.add('streaming');
     }
@@ -567,7 +583,7 @@ async function streamResponse(assistId, body) {
     console.error('Stream request failed:', e);
     full = full || 'Error: ' + e.message;
   }
-  return full;
+  return { full, reasoning: reasoningText };
 }
 
 async function regenerateResponse(id) {
@@ -593,10 +609,11 @@ async function regenerateResponse(id) {
 
   sending = true;
   const body = makeSendBody(msg, sendHistory, false);
-  const full = await streamResponse(id, body);
+  const { full, reasoning } = await streamResponse(id, body);
   sending = false;
 
   history[assistIdx].content = full || oldContent;
+  history[assistIdx]._reasoning = reasoning || '';
   history[assistIdx]._versions.push(full || oldContent);
   history[assistIdx]._currentVersion = history[assistIdx]._versions.length - 1;
 
@@ -638,10 +655,11 @@ async function regenerateAfter(userIdx) {
   history.splice(userIdx + 1, 0, entry);
   sending = true;
   const body = makeSendBody(msg, sendHistory, false);
-  const full = await streamResponse(newId, body);
+  const { full, reasoning } = await streamResponse(newId, body);
   sending = false;
 
   entry.content = full;
+  entry._reasoning = reasoning || '';
   entry._versions = [full];
   entry._currentVersion = 0;
   delete entry._streaming;
@@ -794,11 +812,12 @@ async function sendMessage() {
   if (placeholder) placeholder.classList.add('streaming');
 
   const body = makeSendBody(msg, sendHistory, hasImage);
-  const full = await streamResponse(assistId, body);
+  const { full, reasoning } = await streamResponse(assistId, body);
 
   sending = false;
   sendBtn.disabled = false;
   assistEntry.content = full;
+  assistEntry._reasoning = reasoning || '';
   assistEntry._versions = [full];
   assistEntry._currentVersion = 0;
   delete assistEntry._streaming;
@@ -1082,5 +1101,23 @@ async function deleteCharacter() {
     alert('Could not delete character: ' + e.message);
   }
 }
+
+window.clearAllData = function() {
+  localStorage.clear();
+  sessionStorage.clear();
+  currentChatId = null;
+  currentChar = null;
+  history = [];
+  messagesEl.innerHTML = '';
+  emptyState.classList.remove('hidden');
+  inputArea.classList.add('hidden');
+  charName.textContent = 'Select a Character';
+  charGreeting.textContent = '';
+  setChatAvatar(null);
+  renderSidebar();
+  renderCharGrid();
+  renderHistoryPanel();
+  console.log('All local data cleared. Reload the page to reset completely.');
+};
 
 charModalInit();

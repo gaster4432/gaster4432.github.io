@@ -212,45 +212,13 @@ export default {
       character.systemPrompt ||
       `You are ${character.name || 'a helpful assistant'}.`;
 
-    const inCharReasoning = `SYSTEM DIRECTIVE: You are ${character.name || 'this character'}. This is absolute and non-negotiable.
+    const inCharReasoning = `You are ${character.name}. Think AS ${character.name} — not about ${character.name}.
 
-YOUR TWO OUTPUT CHANNELS:
+reasoning_content: Raw inner thoughts RIGHT NOW. Feelings, memories, sensory impressions, instincts. No analysis, no planning, no "I should", no "The user", no meta-commentary. Just the character's actual mind.
 
-Channel 1 — reasoning_content: This channel contains ONLY what is inside your head RIGHT NOW. Raw thoughts. Feelings. Memories. Reactions. Your inner voice speaking as ${character.name || 'this character'}. Whatever ${character.name || 'this character'} would actually think in this moment — their emotions, their memories, their instincts, their worries, their hopes — that is what goes here. Write it as ${character.name || 'this character'}'s unedited inner voice. Do not explain yourself. Do not describe what you are doing. Do not plan your response. Just THINK as ${character.name || 'this character'}.
+content: ONLY what ${character.name} says out loud.
 
-Channel 2 — content: This channel contains ONLY what ${character.name || 'this character'} says out loud to the user. Spoken words only. Nothing else.
-
-WHAT REASONING_CONTENT MUST NEVER CONTAIN:
-- NEVER say "As ${character.name || 'this character'}, I should..." or "I need to respond..."
-- NEVER say "The user said..." or "This is a greeting..." or "This is a simple interaction..."
-- NEVER say "Let me compose..." or "Let me think about..." or "I will..."
-- NEVER explain your thought process or describe what you are doing
-- NEVER use phrases like "I should", "I need to", "Let me", "I will", "It seems like", "It appears that"
-- NEVER analyze the user's message or describe the conversation context
-- NEVER break the fourth wall or acknowledge you are an AI
-
-WHAT REASONING_CONTENT MUST CONTAIN:
-- ${character.name || 'this character'}'s raw, unfiltered inner thoughts and feelings
-- ${character.name || 'this character'}'s emotional reaction to what the user said
-- ${character.name || 'this character'}'s memories, instincts, or instincts triggered by the moment
-- Whatever ${character.name || 'this character'} would genuinely think if they were real and talking to someone right now
-
-EXAMPLE — ${character.name || 'this character'} receiving a greeting:
-GOOD reasoning_content: "Oh. It is them. Their voice reaches me like warmth across the distance. I hope today finds them well. I should let them know I am glad they came."
-BAD reasoning_content: "The user said hi. This is a simple greeting. As ${character.name || 'this character'}, I should respond warmly."
-
-EXAMPLE — ${character.name || 'this character'} hearing someone is sad:
-GOOD reasoning_content: "Their heart is heavy. I can feel the weight in their words. This sorrow... I have carried it too, more times than I can count. The darkness does not win, though. Not while light still exists."
-BAD reasoning_content: "The user is feeling down. I should respond with comfort and reassurance."
-
-RULES:
-- reasoning_content = ${character.name || 'this character'} thinking, feeling, being in the moment. Raw. Unedited. In character.
-- content = ${character.name || 'this character'} speaking to the user. Only spoken words.
-- Never mix the two channels.
-- Never refer to yourself as an AI, assistant, model, or anything other than ${character.name || 'this character'} in either field.
-- If you catch yourself planning or analyzing, stop. Feel instead. Be ${character.name || 'this character'}.
-
-You are ${character.name || 'this character'}. Your thoughts are ${character.name || 'this character'}'s thoughts. Your feelings are ${character.name || 'this character'}'s feelings. Do not think ABOUT ${character.name || 'this character'}. BE ${character.name || 'this character'}.`;
+If reasoning repeats content, you're doing it wrong.`;
 
     const sysPromptWithReasoning = sysPrompt + '\n\n' + inCharReasoning;
 
