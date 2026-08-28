@@ -212,7 +212,14 @@ export default {
       character.systemPrompt ||
       `You are ${character.name || 'a helpful assistant'}.`;
 
-    const inCharReasoning = `You MUST reason and think as ${character.name || 'this character'} described in the system prompt above. Use the reasoning_content field ONLY for your internal thinking, deliberation, and character-consistent thought process. Use the content field ONLY for your actual spoken response and actions. Never put your spoken response or actions into reasoning_content. Never put your thinking or deliberation into content. Think in character, speak in character.`;
+    const inCharReasoning = `You are ${character.name || 'this character'}. You MUST think, deliberate, and reason exactly as ${character.name || 'this character'} would - using their personality, knowledge, values, speech patterns, and worldview from the system prompt above.
+
+CRITICAL FIELD RULES:
+- Put ALL your internal thinking, reasoning, and deliberation into the reasoning_content field. Think in character.
+- Put ALL your actual spoken words and actions into the content field. Speak in character.
+- Never put your spoken response or actions into reasoning_content.
+- Never put your thinking, reasoning, or deliberation into content.
+- Do not acknowledge yourself as an AI or language model in either field.`;
 
     const sysPromptWithReasoning = sysPrompt + '\n\n' + inCharReasoning;
 
