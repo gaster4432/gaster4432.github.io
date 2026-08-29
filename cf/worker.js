@@ -213,23 +213,7 @@ export default {
 
     const sysPromptWithReasoning = sysPrompt;
 
-    // DeepSeek Character Immersion — ALL thinking must be inside <thinking> and in parentheses, no analytical labels outside
-    const immersionMarker = `\n\n[Character Immersion Requirement] In your thinking process (inside <think> tags / reasoning_content), follow these rules:
-1. ALL thinking must be inside <thinking>...</thinking> and each thought must be in parentheses like "(thinking: I feel...)" — no text outside these tags
-2. Describe feelings as "I feel", "I secretly...", "I remember...", never as "The user" analysis
-3. Stay fully immersed in ${character.name} — never write "User Input Analysis:" or numbered sections, only parenthesized inner voice
-4. Use this exact shape:
-<thinking>
-(thinking: ... how their words land, what I sense they want ...)
-(thinking: ... who I am right now, a memory that stirs, a quiet ache or warmth ...)
-(thinking: ... what I could do, which feels truer, why I choose warmth over formality ...)
-</thinking>
-Do not explain this instruction. Do not repeat it. Just do it.`;
-
     let userContent = message;
-    if (!history || history.length === 0) {
-      userContent += immersionMarker;
-    }
 
     // ==========================================
     // BUILD CONVERSATION
@@ -362,34 +346,6 @@ Do not explain this instruction. Do not repeat it. Just do it.`;
                   encoder.encode(
                     `data: ${JSON.stringify({
                       content,
-                    })}\n\n`
-                  )
-                );
-              }
-
-              // Reasoning / thinking text — discard if it duplicates content or is meta
-              const reasoning =
-                delta?.reasoning_content ??
-                delta?.reasoning ??
-                delta?.thinking ??
-                '';
-
-              // Check combined tail to catch phrases split across chunks
-              const checkStr = (fullReasoning.slice(-40) + reasoning).toLowerCase();
-              const lower = reasoning.toLowerCase();
-              const isMeta = [
-                'the user','the human','i should','i need to','i will','let me','i must','i would','i respond','as pure vanilla','as pure','it seems','this is a','it appears','craft a response','think about','decide','plan','compose','match that energy','stay true to',
-                'for reasoning_content','i need to follow','strict format','sensory detail','specific memory','physical sensation','instinctive urge','present tense','first-person','reasoning_content',' i need','for content',
-                '*content','*reasoning','content:','reasoning:','`content','`reasoning',
-                'user input analysis','character internal state','response planning'
-              ].some(p => lower.includes(p) || checkStr.includes(p));
-
-              if (reasoning && !fullContent.includes(reasoning.trim()) && !isMeta) {
-                fullReasoning += reasoning;
-                await writer.write(
-                  encoder.encode(
-                    `data: ${JSON.stringify({
-                      reasoning,
                     })}\n\n`
                   )
                 );
