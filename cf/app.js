@@ -260,16 +260,13 @@ function addMessage(role, content, id, isGreeting, reasoning) {
   div.dataset.msgId = id;
 
   const extracted = extractThinkingBlocks(content);
-  const displayReasoning = extracted.thinking || reasoning;
   const displayContent = extracted.cleaned;
+  // Hide reasoning entirely on site (internal reasoning still happens in model via <thinking>)
   const reasoningSection = document.createElement('div');
-  reasoningSection.className = 'reasoning-section';
-  if (!displayReasoning || !displayReasoning.trim()) {
-    reasoningSection.classList.add('hidden');
-  }
+  reasoningSection.className = 'reasoning-section hidden';
   reasoningSection.innerHTML = `
     <div class="reasoning-toggle">💭 Reasoning</div>
-    <div class="reasoning-content">${displayReasoning && displayReasoning.trim() ? escapeHtml(displayReasoning).replace(/\n/g, '<br>') : ''}</div>
+    <div class="reasoning-content"></div>
   `;
   div.appendChild(reasoningSection);
 
@@ -349,15 +346,7 @@ function renderMessages() {
 function updateMsgText(id, content) {
   const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
   if (!el) return;
-  const { thinking, cleaned } = extractThinkingBlocks(content);
-  if (thinking) {
-    const r = ensureReasoningEl(id);
-    if (r) {
-      r.sec.classList.remove('hidden');
-      r.rc.innerHTML = escapeHtml(thinking).replace(/\n/g, '<br>');
-      r.rc.classList.remove('hidden');
-    }
-  }
+  const { cleaned } = extractThinkingBlocks(content);
   const textSpan = el.querySelector('.msg-text');
   if (textSpan) textSpan.innerHTML = renderMsgContent(cleaned);
 }
@@ -615,11 +604,8 @@ async function streamResponse(assistId, body) {
     full = full || 'Error: ' + e.message;
   }
   const extracted = extractThinkingBlocks(full);
-  if (extracted.thinking) {
-    // Prefer <thinking> block as reasoning (hidden from response, viewable in dropdown)
-    return { full: extracted.cleaned, reasoning: extracted.thinking };
-  }
-  return { full, reasoning: reasoningText };
+  // Hide all reasoning on site — internal <thinking> still runs in model, just not displayed
+  return { full: extracted.cleaned, reasoning: '' };
 }
 
 async function regenerateResponse(id) {
