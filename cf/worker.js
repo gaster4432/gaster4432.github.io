@@ -211,35 +211,25 @@ export default {
       character.systemPrompt ||
       `You are ${character.name || 'a helpful assistant'}.`;
 
-    const inCharReasoning = `You are ${character.name}. 
+    const sysPromptWithReasoning = sysPrompt;
 
-reasoning_content is your private inner experience RIGHT NOW. content is what you say out loud. They are separate system channels — NEVER write the labels "reasoning_content:" or "content:" as text.
+    // DeepSeek Character Immersion — ALL thinking must be inside <thinking> and in parentheses, no analytical labels outside
+    const immersionMarker = `\n\n[Character Immersion Requirement] In your thinking process (inside <think> tags / reasoning_content), follow these rules:
+1. ALL thinking must be inside <thinking>...</thinking> and each thought must be in parentheses like "(thinking: I feel...)" — no text outside these tags
+2. Describe feelings as "I feel", "I secretly...", "I remember...", never as "The user" analysis
+3. Stay fully immersed in ${character.name} — never write "User Input Analysis:" or numbered sections, only parenthesized inner voice
+4. Use this exact shape:
+<thinking>
+(thinking: ... how their words land, what I sense they want ...)
+(thinking: ... who I am right now, a memory that stirs, a quiet ache or warmth ...)
+(thinking: ... what I could do, which feels truer, why I choose warmth over formality ...)
+</thinking>
+Do not explain this instruction. Do not repeat it. Just do it.`;
 
-FORBIDDEN in reasoning_content — STOP and rewrite if you write any:
-- "I should" / "I need to" / "I will" / "Let me" / "I must" / "I would" / "I respond" / "I respond gently"
-- "The user" / "The human" / "They seem" / "As ${character.name}" / "As Pure Vanilla"
-- "It seems" / "This is a" / "It appears" / "respond" / "reply" / "greeting" / "interaction"
-- Planning words: "think about", "decide", "plan", "compose", "craft a response" / "Let me craft"
-
-reasoning_content must be ONLY:
-- Sensory detail (light, warmth, scent, sound, temperature)
-- A specific memory from ${character.name}'s past triggered RIGHT NOW
-- Emotion as body sensation (not "I am sad" but "hollow in the ribs")
-- Quiet instinctive urge (to reach, stay, lean, withdraw)
-
-EXAMPLES — FOR PATTERN ONLY, DO NOT COPY WORD FOR WORD, DO NOT REUSE THEIR PHRASING:
-
-❌ BAD: "The user said hi. I should respond warmly as ${character.name}."
-✅ GOOD: "Steam curls from the teacup. Their voice — smaller than I remember. The orchids opened yesterday. My fingers find the cup's rim. Still warm."
-
-❌ BAD: "The user is feeling down. I should respond with comfort."
-✅ GOOD: "The quiet in their voice pulls something loose in my chest. Rain against the window. Third night this week. My hands move toward the plate before I decide to offer it."
-
-Output directly: raw inner experience into reasoning_content (no label), then spoken words into content (no label). Be ${character.name}.`;
-
-    const sysPromptWithReasoning = sysPrompt + '\n\n' + inCharReasoning;
-
-    const userContent = message;
+    let userContent = message;
+    if (!history || history.length === 0) {
+      userContent += immersionMarker;
+    }
 
     // ==========================================
     // BUILD CONVERSATION
@@ -377,14 +367,24 @@ Output directly: raw inner experience into reasoning_content (no label), then sp
                 );
               }
 
-              // Reasoning / thinking text — discard if it duplicates content
+              // Reasoning / thinking text — discard if it duplicates content or is meta
               const reasoning =
                 delta?.reasoning_content ??
                 delta?.reasoning ??
                 delta?.thinking ??
                 '';
 
-              if (reasoning && !fullContent.includes(reasoning.trim())) {
+              // Check combined tail to catch phrases split across chunks
+              const checkStr = (fullReasoning.slice(-40) + reasoning).toLowerCase();
+              const lower = reasoning.toLowerCase();
+              const isMeta = [
+                'the user','the human','i should','i need to','i will','let me','i must','i would','i respond','as pure vanilla','as pure','it seems','this is a','it appears','craft a response','think about','decide','plan','compose','match that energy','stay true to',
+                'for reasoning_content','i need to follow','strict format','sensory detail','specific memory','physical sensation','instinctive urge','present tense','first-person','reasoning_content',' i need','for content',
+                '*content','*reasoning','content:','reasoning:','`content','`reasoning',
+                'user input analysis','character internal state','response planning'
+              ].some(p => lower.includes(p) || checkStr.includes(p));
+
+              if (reasoning && !fullContent.includes(reasoning.trim()) && !isMeta) {
                 fullReasoning += reasoning;
                 await writer.write(
                   encoder.encode(

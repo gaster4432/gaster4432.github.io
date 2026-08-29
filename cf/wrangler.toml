@@ -1,0 +1,9 @@
+name = "cf-chat"
+main = "worker.js"
+compatibility_date = "2026-07-19"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cf-chat-characters"
+database_id = "045d9b49-944a-40ab-8cf1-183d8e08c9ad"
+
