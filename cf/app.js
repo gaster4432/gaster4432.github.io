@@ -6,7 +6,6 @@ let currentChatId = null;
 let history = [];
 let sending = false;
 let msgCounter = 0;
-let imageData = null;
 let currentEditCharKey = null;
 
 const $ = id => document.getElementById(id);
@@ -62,11 +61,6 @@ const charPicker = $('charPicker');
 const charSidebarList = $('charSidebarList');
 const characterGrid = $('characterGrid');
 const characterSearch = $('characterSearch');
-const imageInput = $('imageInput');
-const imageUploadBtn = $('imageUploadBtn');
-const imagePreview = $('imagePreview');
-const previewImg = $('previewImg');
-const clearImageBtn = $('clearImageBtn');
 
 
 function setChatAvatar(char) {
@@ -77,12 +71,13 @@ function setChatAvatar(char) {
 function uid() { return 'm' + (++msgCounter) + '_' + Date.now(); }
 
 function loadData() {
-  const stored = loadJSON('cf_chat_chats', []);
+  let stored = loadJSON('pkax_chats', null);
+  if (stored === null) stored = loadJSON('cf_chat_chats', []);
   return Array.isArray(stored) ? stored : [];
 }
 
 function saveData(chats) {
-  localStorage.setItem('cf_chat_chats', JSON.stringify(chats));
+  localStorage.setItem('pkax_chats', JSON.stringify(chats));
 }
 
 function loadChat(chatId) {
@@ -115,7 +110,8 @@ function getMostRecentChat(charKey) {
 }
 
 function initCharacters() {
-  const custom = loadJSON('cf_chat_custom_chars', {});
+  let custom = loadJSON('pkax_custom_chars', null);
+  if (custom === null) custom = loadJSON('cf_chat_custom_chars', {});
   characters = { ...DEFAULT_CHARACTERS, ...(custom && typeof custom === 'object' ? custom : {}) };
 }
 
@@ -487,17 +483,13 @@ function buildSendHistory(upToIdx) {
   return result;
 }
 
-function makeSendBody(msg, sendHistory, withImage) {
+function makeSendBody(msg, sendHistory) {
   const char = characters[currentChar] || {};
-  const body = {
+  return {
     message: msg,
     character: { name: char.name || 'Assistant', greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
     history: sendHistory,
   };
-  if (withImage && imageData) {
-    body.image = imageData;
-  }
-  return body;
 }
 
 async function streamResponse(assistId, body) {
@@ -608,7 +600,7 @@ async function regenerateResponse(id) {
   }
 
   sending = true;
-  const body = makeSendBody(msg, sendHistory, false);
+  const body = makeSendBody(msg, sendHistory);
   const { full, reasoning } = await streamResponse(id, body);
   sending = false;
 
@@ -654,7 +646,7 @@ async function regenerateAfter(userIdx) {
   const entry = { role: 'assistant', content: '', _id: newId, _versions: [], _currentVersion: 0, _streaming: true };
   history.splice(userIdx + 1, 0, entry);
   sending = true;
-  const body = makeSendBody(msg, sendHistory, false);
+  const body = makeSendBody(msg, sendHistory);
   const { full, reasoning } = await streamResponse(newId, body);
   sending = false;
 
@@ -728,7 +720,7 @@ function buildActions(id) {
   return div;
 }
 
-// ─── Image Upload ───
+// ─── Image helper (avatar only) ───
 const MAX_IMAGE_DIM = 1024;
 
 function compressImageFile(file) {
@@ -761,23 +753,6 @@ function compressImageFile(file) {
   });
 }
 
-imageUploadBtn.onclick = () => imageInput.click();
-imageInput.onchange = async () => {
-  const file = imageInput.files[0];
-  if (!file) return;
-  const dataUrl = await compressImageFile(file);
-  if (!dataUrl) return;
-  imageData = dataUrl;
-  previewImg.src = dataUrl;
-  imagePreview.classList.remove('hidden');
-};
-clearImageBtn.onclick = () => {
-  imageData = null;
-  imageInput.value = '';
-  imagePreview.classList.add('hidden');
-  previewImg.src = '';
-};
-
 // ─── Send ───
 sendBtn.onclick = sendMessage;
 chatInput.onkeydown = (e) => {
@@ -791,14 +766,6 @@ async function sendMessage() {
   sending = true;
   sendBtn.disabled = true;
 
-  const hasImage = !!imageData;
-  if (hasImage) {
-    imageData = null;
-    imageInput.value = '';
-    imagePreview.classList.add('hidden');
-    previewImg.src = '';
-  }
-
   const userMsg = { role: 'user', content: msg, _id: uid() };
   history.push(userMsg);
   addMessage('user', msg, userMsg._id, false);
@@ -811,7 +778,7 @@ async function sendMessage() {
   const placeholder = messagesEl.querySelector(`[data-msg-id="${assistId}"] .msg-text`);
   if (placeholder) placeholder.classList.add('streaming');
 
-  const body = makeSendBody(msg, sendHistory, hasImage);
+  const body = makeSendBody(msg, sendHistory);
   const { full, reasoning } = await streamResponse(assistId, body);
 
   sending = false;

@@ -1,5 +1,5 @@
 // ==========================================
-// CF Chat Worker - Chat + Characters + Vision
+// PKAX Worker - Chat + Characters + Vision
 // OpenCode model backend
 // ==========================================
 
@@ -194,8 +194,7 @@ export default {
     const {
       message,
       character,
-      history,
-      image
+      history
     } = await request.json();
 
     if (!character) {
@@ -240,68 +239,7 @@ Output directly: raw inner experience into reasoning_content (no label), then sp
 
     const sysPromptWithReasoning = sysPrompt + '\n\n' + inCharReasoning;
 
-    let userContent = message;
-
-    // ==========================================
-    // IMAGE UNDERSTANDING
-    // ==========================================
-
-    if (image) {
-      try {
-        const visionResp = await fetch(
-          `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai/run/@cf/mistralai/mistral-small-3.1-24b-instruct`,
-          {
-            method: 'POST',
-
-            headers: {
-              Authorization: `Bearer ${env.CF_AUTH_TOKEN}`,
-              'Content-Type': 'application/json',
-            },
-
-            body: JSON.stringify({
-              messages: [
-                {
-                  role: 'system',
-                  content: 'Describe the image in detail.',
-                },
-                {
-                  role: 'user',
-                  content: [
-                    {
-                      type: 'text',
-                      text: 'Describe this image accurately and in detail:',
-                    },
-                    {
-                      type: 'image_url',
-                      image_url: {
-                        url: image.startsWith('data:')
-                          ? image
-                          : `data:image/png;base64,${image}`,
-                      },
-                    },
-                  ],
-                },
-              ],
-              max_tokens: 1024,
-            }),
-          }
-        );
-
-        if (visionResp.ok) {
-          const visionData = await visionResp.json();
-
-          const description =
-            visionData.result?.response ||
-            'An image was provided.';
-
-          userContent =
-            `${message}\n\n[Image Description]: ${description}`;
-        }
-      } catch {
-        userContent =
-          `${message}\n\n[Image could not be analyzed]`;
-      }
-    }
+    const userContent = message;
 
     // ==========================================
     // BUILD CONVERSATION
