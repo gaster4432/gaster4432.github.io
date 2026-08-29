@@ -599,7 +599,7 @@ async function regenerateResponse(id) {
   history[assistIdx]._currentVersion = history[assistIdx]._versions.length;
 
   const msg = history[userIdx].content;
-  const sendHistory = buildSendHistory(userIdx);
+  const sendHistory = buildSendHistory(userIdx - 1);
 
   const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
   if (el) {
@@ -646,7 +646,7 @@ function cycleVersion(id, dir) {
 
 async function regenerateAfter(userIdx) {
   const msg = history[userIdx].content;
-  const sendHistory = buildSendHistory(userIdx);
+  const sendHistory = buildSendHistory(userIdx - 1);
 
   const newId = uid();
   const streamDiv = addMessage('assistant', '', newId, false);
@@ -803,7 +803,7 @@ async function sendMessage() {
   history.push(userMsg);
   addMessage('user', msg, userMsg._id, false);
 
-  const sendHistory = buildSendHistory(history.length - 1);
+  const sendHistory = buildSendHistory(history.length - 2);
   const assistId = uid();
   addMessage('assistant', '', assistId, false);
   const assistEntry = { role: 'assistant', content: '', _id: assistId, _versions: [], _currentVersion: 0, _streaming: true };
@@ -859,7 +859,23 @@ resetBtn.onclick = () => {
   if (!currentChar) return;
   if (currentChatId && !confirm('Clear this chat? This cannot be undone.')) return;
   if (currentChatId) deleteChat(currentChatId);
-  selectCharacter(currentChar);
+  // Start a truly fresh chat — don't auto-load the next recent chat
+  currentChatId = null;
+  history = [];
+  messagesEl.innerHTML = '';
+  emptyState.classList.add('hidden');
+  inputArea.classList.remove('hidden');
+  charPicker.classList.add('hidden');
+  const char = characters[currentChar];
+  if (char) {
+    charName.textContent = char.name;
+    charGreeting.textContent = char.greeting || '';
+    setChatAvatar(char);
+    if (char.greeting) addMessage('assistant', char.greeting, null, true);
+  }
+  renderSidebar();
+  renderCharGrid();
+  renderHistoryPanel();
 };
 
 $('newChatBtn').onclick = () => {
@@ -869,7 +885,17 @@ $('newChatBtn').onclick = () => {
   messagesEl.innerHTML = '';
   emptyState.classList.add('hidden');
   inputArea.classList.remove('hidden');
-  selectCharacter(currentChar);
+  charPicker.classList.add('hidden');
+  const char = characters[currentChar];
+  if (char) {
+    charName.textContent = char.name;
+    charGreeting.textContent = char.greeting || '';
+    setChatAvatar(char);
+    if (char.greeting) addMessage('assistant', char.greeting, null, true);
+  }
+  renderSidebar();
+  renderCharGrid();
+  renderHistoryPanel();
 };
 
 $('historyBtn').onclick = () => { renderHistoryPanel(); $('historyArea').classList.remove('hidden'); };
