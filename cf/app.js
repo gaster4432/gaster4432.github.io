@@ -226,26 +226,56 @@ window.copyCode = function(id) {
   }).catch(() => {});
 };
 
+function extractThinkingBlocks(text) {
+  const re = /<thinking>([\s\S]*?)<\/thinking>/gi;
+  let thinking = '';
+  let m;
+  while ((m = re.exec(text)) !== null) thinking += (thinking ? '\n\n' : '') + m[1].trim();
+  const cleaned = text.replace(re, '').replace(/<thinking>[\s\S]*$/i, '').trim();
+  return { thinking, cleaned };
+}
+
+function ensureReasoningEl(assistId) {
+  const msgEl = messagesEl.querySelector(`[data-msg-id="${assistId}"]`);
+  if (!msgEl) return null;
+  let sec = msgEl.querySelector('.reasoning-section');
+  let rc = msgEl.querySelector('.reasoning-content');
+  if (!sec) {
+    const span = msgEl.querySelector('.msg-text');
+    sec = document.createElement('div');
+    sec.className = 'reasoning-section';
+    sec.innerHTML = `<span class="reasoning-toggle">💭 Reasoning</span><div class="reasoning-content hidden"></div>`;
+    const t = sec.querySelector('.reasoning-toggle');
+    rc = sec.querySelector('.reasoning-content');
+    t.addEventListener('click', () => { rc.classList.toggle('hidden'); t.classList.toggle('collapsed'); });
+    if (span) msgEl.insertBefore(sec, span); else msgEl.appendChild(sec);
+  }
+  return { sec, rc };
+}
+
 function addMessage(role, content, id, isGreeting, reasoning) {
   id = id || uid();
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   div.dataset.msgId = id;
 
+  const extracted = extractThinkingBlocks(content);
+  const displayReasoning = extracted.thinking || reasoning;
+  const displayContent = extracted.cleaned;
   const reasoningSection = document.createElement('div');
   reasoningSection.className = 'reasoning-section';
-  if (!reasoning || !reasoning.trim()) {
+  if (!displayReasoning || !displayReasoning.trim()) {
     reasoningSection.classList.add('hidden');
   }
   reasoningSection.innerHTML = `
     <div class="reasoning-toggle">💭 Reasoning</div>
-    <div class="reasoning-content">${reasoning && reasoning.trim() ? escapeHtml(reasoning).replace(/\n/g, '<br>') : ''}</div>
+    <div class="reasoning-content">${displayReasoning && displayReasoning.trim() ? escapeHtml(displayReasoning).replace(/\n/g, '<br>') : ''}</div>
   `;
   div.appendChild(reasoningSection);
 
   const contentSpan = document.createElement('span');
   contentSpan.className = 'msg-text';
-  contentSpan.innerHTML = renderMsgContent(content);
+  contentSpan.innerHTML = renderMsgContent(displayContent);
   div.appendChild(contentSpan);
 
   const actions = document.createElement('div');
@@ -318,10 +348,18 @@ function renderMessages() {
 
 function updateMsgText(id, content) {
   const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
-  if (el) {
-    const textSpan = el.querySelector('.msg-text');
-    if (textSpan) textSpan.innerHTML = renderMsgContent(content);
+  if (!el) return;
+  const { thinking, cleaned } = extractThinkingBlocks(content);
+  if (thinking) {
+    const r = ensureReasoningEl(id);
+    if (r) {
+      r.sec.classList.remove('hidden');
+      r.rc.innerHTML = escapeHtml(thinking).replace(/\n/g, '<br>');
+      r.rc.classList.remove('hidden');
+    }
   }
+  const textSpan = el.querySelector('.msg-text');
+  if (textSpan) textSpan.innerHTML = renderMsgContent(cleaned);
 }
 
 function updateVersionLabel(id) {
@@ -478,7 +516,8 @@ function buildSendHistory(upToIdx) {
   for (let i = 0; i <= upToIdx; i++) {
     const m = history[i];
     if (m.role === 'assistant' && char.greeting && m.content === char.greeting) continue;
-    result.push({ role: m.role, content: m.content });
+    const cleaned = extractThinkingBlocks(m.content).cleaned;
+    result.push({ role: m.role, content: cleaned });
   }
   return result;
 }
@@ -574,6 +613,11 @@ async function streamResponse(assistId, body) {
   } catch (e) {
     console.error('Stream request failed:', e);
     full = full || 'Error: ' + e.message;
+  }
+  const extracted = extractThinkingBlocks(full);
+  if (extracted.thinking) {
+    // Prefer <thinking> block as reasoning (hidden from response, viewable in dropdown)
+    return { full: extracted.cleaned, reasoning: extracted.thinking };
   }
   return { full, reasoning: reasoningText };
 }
