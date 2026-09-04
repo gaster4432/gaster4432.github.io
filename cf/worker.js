@@ -5,7 +5,7 @@
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Max-Age': '86400',
 };
@@ -17,11 +17,9 @@ function json(data, status = 200) {
   });
 }
 
-function cleanStr(v, max) {
-  return typeof v === 'string' ? v.trim().slice(0, max) : '';
-}
-
-// --- Character CRUD ---
+// --- Characters: read-only ---
+// Characters are managed by direct database writes.
+// This API only serves them; no request can create, edit, or delete them.
 
 async function handleCharacters(request, env) {
   const url = new URL(request.url);
@@ -32,142 +30,6 @@ async function handleCharacters(request, env) {
     ).all();
 
     return json({ characters: results || [] });
-  }
-
-  if (request.method === 'POST' && url.pathname === '/api/characters') {
-    let body = {};
-
-    try {
-      body = await request.json();
-    } catch {
-      return json({ error: 'invalid JSON' }, 400);
-    }
-
-    const name = cleanStr(body.name, 200);
-
-    if (!name) {
-      return json({ error: 'name required' }, 400);
-    }
-
-    const greeting = cleanStr(body.greeting, 2000);
-    const systemPrompt = cleanStr(body.systemPrompt, 20000);
-
-    const avatar =
-      typeof body.avatar === 'string'
-        ? body.avatar.slice(0, 1500000)
-        : '';
-
-    const id =
-      'char_' +
-      crypto.randomUUID().replace(/-/g, '').slice(0, 16);
-
-    await env.DB.prepare(
-      'INSERT INTO characters (id, name, greeting, systemPrompt, avatar) VALUES (?, ?, ?, ?, ?)'
-    )
-      .bind(id, name, greeting, systemPrompt, avatar)
-      .run();
-
-    return json(
-      {
-        character: {
-          id,
-          name,
-          greeting,
-          systemPrompt,
-          avatar,
-        },
-      },
-      201
-    );
-  }
-
-  const m = url.pathname.match(/^\/api\/characters\/([\w-]+)$/);
-
-  if (m) {
-    const id = m[1];
-
-    if (request.method === 'PUT') {
-      let body = {};
-
-      try {
-        body = await request.json();
-      } catch {
-        return json({ error: 'invalid JSON' }, 400);
-      }
-
-      const existing = await env.DB.prepare(
-        'SELECT * FROM characters WHERE id = ?'
-      )
-        .bind(id)
-        .first();
-
-      if (!existing) {
-        return json({ error: 'not found' }, 404);
-      }
-
-      const next = {
-        name: cleanStr(body.name, 200) || existing.name,
-
-        greeting:
-          typeof body.greeting === 'string'
-            ? cleanStr(body.greeting, 2000)
-            : existing.greeting,
-
-        systemPrompt:
-          typeof body.systemPrompt === 'string'
-            ? cleanStr(body.systemPrompt, 20000)
-            : existing.systemPrompt,
-
-        avatar:
-          typeof body.avatar === 'string'
-            ? body.avatar.slice(0, 1500000)
-            : existing.avatar,
-      };
-
-      if (!next.name) {
-        return json({ error: 'name required' }, 400);
-      }
-
-      await env.DB.prepare(
-        "UPDATE characters SET name = ?, greeting = ?, systemPrompt = ?, avatar = ?, updated_at = datetime('now') WHERE id = ?"
-      )
-        .bind(
-          next.name,
-          next.greeting,
-          next.systemPrompt,
-          next.avatar,
-          id
-        )
-        .run();
-
-      const row = await env.DB.prepare(
-        'SELECT * FROM characters WHERE id = ?'
-      )
-        .bind(id)
-        .first();
-
-      return json({ character: row });
-    }
-
-    if (request.method === 'DELETE') {
-      const existing = await env.DB.prepare(
-        'SELECT id FROM characters WHERE id = ?'
-      )
-        .bind(id)
-        .first();
-
-      if (!existing) {
-        return json({ error: 'not found' }, 404);
-      }
-
-      await env.DB.prepare(
-        'DELETE FROM characters WHERE id = ?'
-      )
-        .bind(id)
-        .run();
-
-      return json({ success: true });
-    }
   }
 
   return json({ error: 'Not found' }, 404);

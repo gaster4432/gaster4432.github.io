@@ -51,10 +51,6 @@
             </div>
           </div>
           <div class="chat-header-actions">
-            <button id="newCharBtn" class="btn btn-ghost" title="Create a character">
-              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              New Character
-            </button>
             <button id="resetBtn" class="btn btn-ghost" title="Delete this chat and start fresh">Clear</button>
           </div>
         </div>
@@ -91,33 +87,6 @@
         <div class="overlay-list" id="historyList"></div>
       </div>
 
-      <div id="charModal" class="char-modal-overlay hidden">
-        <div class="char-modal">
-          <div class="overlay-header">
-            <h2 id="charModalTitle">New Character</h2>
-            <button class="overlay-close" id="closeCharModalBtn">&times;</button>
-          </div>
-          <div class="char-modal-body">
-            <label class="modal-label">Name</label>
-            <input type="text" id="cmName" class="chat-input" placeholder="Character name" maxlength="200">
-            <label class="modal-label">Greeting</label>
-            <textarea id="cmGreeting" class="msg-edit-input" rows="2" placeholder="What they say when you meet them"></textarea>
-            <label class="modal-label">System prompt</label>
-            <textarea id="cmPrompt" class="msg-edit-input" rows="8" placeholder="Who they are, how they act..."></textarea>
-            <label class="modal-label">Profile image</label>
-            <div class="modal-avatar-row">
-              <div class="modal-avatar-preview" id="cmAvatarPreview"></div>
-              <button id="cmAvatarBtn" class="btn btn-ghost">Upload</button>
-              <button id="cmAvatarClear" class="btn btn-ghost">Remove</button>
-              <input type="file" id="cmAvatarInput" accept="image/*" hidden>
-            </div>
-          </div>
-          <div class="char-modal-footer">
-            <button id="cmDeleteBtn" class="btn btn-ghost hidden" style="color:#f87171;border:1px solid rgba(248,113,113,0.25)">Delete</button>
-            <button id="cmSaveBtn" class="btn btn-ghost" style="flex:1;justify-content:center;padding:10px;font-size:14px;color:#fff;background:linear-gradient(135deg,#3b82f6,#14b8a6)">Create</button>
-          </div>
-        </div>
-      </div>
     </main>
   </div>
 </div>
