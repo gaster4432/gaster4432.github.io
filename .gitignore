@@ -1,1 +1,23 @@
-/.wrangler
+# Cloudflare local state
+**/.wrangler/
+
+# Local secrets and environment files
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Future build/package output
+node_modules/
+dist/
+build/
+coverage/
