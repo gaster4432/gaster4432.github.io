@@ -88,6 +88,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
   box-shadow:0 0 24px rgba(53,224,255,.35)}
 .btn.primary:hover{box-shadow:0 0 34px rgba(53,224,255,.6)}
 .btn.small{min-width:0;font-size:12px;padding:9px 20px;opacity:.85}
+.btn.weeee{background:linear-gradient(90deg,#ff2d78,#ffb020,#7cff6b,#35e0ff,#b26bff,#ff2d78);
+  background-size:300% 100%;border-color:#fff;font-size:16px;animation:weee 3s linear infinite;
+  box-shadow:0 0 24px rgba(255,45,120,.45)}
+@keyframes weee{to{background-position:300% 0}}
 .menu-stats{display:flex;gap:26px;justify-content:center;margin:26px 0 12px}
 .menu-stats div{display:flex;flex-direction:column}
 .menu-stats span{font-size:11px;letter-spacing:3px;opacity:.6}
