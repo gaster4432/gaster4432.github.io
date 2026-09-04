@@ -1011,9 +1011,10 @@ function update(dt) {
     const bossAlive = !!G.boss && !G.boss.dead;
     const interval = clamp(1.1 - G.wave * 0.045 - G.time / 600, 0.18, 1.1) * (bossAlive ? 2.2 : 1);
     G.spawnT = interval;
-    const cap = Math.min(40 + G.wave * 8, 240);
+    const mobM = G.weeee ? 3 : 1; // 3x mob spawns only in WEEEEE mode
+    const cap = Math.min((40 + G.wave * 8) * mobM, 700);
     if (enemies.length < cap) {
-      const n = 1 + Math.floor(G.wave / 3) + (Math.random() < 0.3 ? 1 : 0);
+      const n = (1 + Math.floor(G.wave / 3) + (Math.random() < 0.3 ? 1 : 0)) * mobM;
       const types = unlockedTypes();
       for (let i = 0; i < n; i++) {
         const p = spawnPos();
