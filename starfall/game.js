@@ -170,6 +170,10 @@ canvas.addEventListener('mousedown', e => {
   if (e.button === 2) fireBomb();
 });
 window.addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  G.zoom = clamp(Math.round(G.zoom * (e.deltaY > 0 ? 0.9 : 1.111) * 100) / 100, 0.5, 2.5);
+}, { passive: false });
 window.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('visibilitychange', () => { if (document.hidden && G.state === 'playing') pauseGame(); });
 
@@ -362,7 +366,7 @@ function buildPowerSprites() {
 const G = {
   state: 'menu', time: 0, wave: 1, waveT: 0, kills: 0, score: 0,
   combo: 0, comboT: 0, bestCombo: 0, shake: 0, hitstop: 0, flashA: 0,
-  endless: false, won: false, slowmo: 0, weeee: false,
+  endless: false, won: false, slowmo: 0, weeee: false, zoom: 1,
   rerolls: 1, pendingLevels: 0, boss: null, spawnT: 0, diffM: DIFFS[1],
 };
 let player = null;
@@ -626,7 +630,7 @@ function spawnEnemy(type, x, y) {
   return e;
 }
 function spawnPos() {
-  const a = rand(0, TAU), R = Math.hypot(W, H) / 2 + rand(60, 200);
+  const a = rand(0, TAU), R = (Math.hypot(W, H) / 2 + rand(60, 200)) / G.zoom;
   return { x: player.x + Math.cos(a) * R, y: player.y + Math.sin(a) * R };
 }
 function unlockedTypes() {
@@ -1037,7 +1041,7 @@ function updatePlayer(dt) {
   } else if (!(touch.active && (touch.ax || touch.ay)) || true) {
     const sx = p.x - cam.x + W / 2, sy = p.y - cam.y + H / 2;
     // mouse screen pos -> world dir
-    const wx = cam.x + (mouse.x - W / 2), wy = cam.y + (mouse.y - H / 2);
+    const wx = cam.x + (mouse.x - W / 2) / G.zoom, wy = cam.y + (mouse.y - H / 2) / G.zoom;
     p.aim = Math.atan2(wy - p.y, wx - p.x);
   }
   // move
@@ -1458,7 +1462,7 @@ function render() {
   drawGrid(cx, cy);
 
   ctx.save();
-  ctx.translate(-cx, -cy);
+  ctx.translate(W / 2, H / 2); ctx.scale(G.zoom, G.zoom); ctx.translate(-cam.x + ox, -cam.y + oy);
 
   // gems
   for (const g of gems) {
