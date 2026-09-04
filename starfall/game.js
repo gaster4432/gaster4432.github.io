@@ -362,7 +362,7 @@ function buildPowerSprites() {
 const G = {
   state: 'menu', time: 0, wave: 1, waveT: 0, kills: 0, score: 0,
   combo: 0, comboT: 0, bestCombo: 0, shake: 0, hitstop: 0, flashA: 0,
-  endless: false, won: false, slowmo: 0,
+  endless: false, won: false, slowmo: 0, weeee: false,
   rerolls: 1, pendingLevels: 0, boss: null, spawnT: 0, diffM: DIFFS[1],
 };
 let player = null;
@@ -394,10 +394,15 @@ function newPlayer() {
   };
 }
 
-function resetRun(endless) {
+function resetRun(endless, weeee) {
   enemies = []; pBullets = []; eBullets = []; gems = []; pickups = [];
   parts = []; floaters = []; bolts = []; powerups = [];
   player = newPlayer();
+  G.weeee = !!weeee;
+  if (G.weeee) {
+    player.maxHp *= 100; player.hp = player.maxHp;
+    player.magnet *= 100; player.rateM *= 100; player.dmgM *= 100;
+  }
   G.state = 'playing'; G.time = 0; G.wave = 1; G.waveT = 0; G.kills = 0; G.score = 0;
   G.combo = 0; G.comboT = 0; G.bestCombo = 0; G.shake = 0; G.hitstop = 0; G.flashA = 0;
   G.endless = !!endless; G.won = false; G.rerolls = 1; G.pendingLevels = 0; G.boss = null; G.spawnT = 1;
@@ -405,7 +410,8 @@ function resetRun(endless) {
   store.set('games', (store.get('games', 0)) + 1);
   refreshMenuStats();
   showScreen(null); $('hud').classList.remove('hidden');
-  announce('WAVE 1', '#35e0ff'); toast('Survive. Collect ◇. Get strong.');
+  if (G.weeee) { announce('🌈 WEEEEEE!!', '#ffcf4d'); toast('100x fire rate, damage, score + 10x upgrades. Enemies: unchanged. WEEE!'); }
+  else { announce('WAVE 1', '#35e0ff'); toast('Survive. Collect ◇. Get strong.'); }
   AudioSys.ensure(); AudioSys.startMusic();
   updateWeaponsHUD(); updatePouch();
 }
@@ -471,15 +477,15 @@ function killEnemy(e, byBomb) {
   G.kills++;
   G.combo++; G.comboT = 3; G.bestCombo = Math.max(G.bestCombo, G.combo);
   const mult = 1 + Math.min(G.combo, 100) * 0.02;
-  G.score += Math.round(e.score * mult * G.diffM.scoreM);
+  G.score += Math.round(e.score * mult * G.diffM.scoreM * (G.weeee ? 100 : 1));
   burst(e.x, e.y, e.color, e.boss ? 90 : e.r > 20 ? 26 : 12, e.boss ? 520 : 340, 0.6, e.boss ? 6 : 4);
   burst(e.x, e.y, '#ffffff', 6, 200, 0.3, 2.5);
   if (e.boss) {
     addShake(1); flash(0.35); G.hitstop = Math.max(G.hitstop, 0.22); AudioSys.bigBoom();
     floater(e.x, e.y - 40, 'BOSS DOWN +' + e.score, '#ffcf4d', true);
     dropPickup(e.x, e.y, 'heart'); dropPickup(e.x + 30, e.y, 'bomb'); dropPickup(e.x - 30, e.y, 'magnet');
-    dropPowerup(e.x + rand(-50, 50), e.y + rand(-50, 50));
-    dropPowerup(e.x + rand(-50, 50), e.y + rand(-50, 50));
+    const nCores = G.weeee ? 8 : 2;
+    for (let i = 0; i < nCores; i++) dropPowerup(e.x + rand(-50, 50), e.y + rand(-50, 50));
     for (let i = 0; i < 10; i++) dropGem(e.x + rand(-60, 60), e.y + rand(-60, 60), Math.random() < 0.4 ? 20 : 5);
     G.boss = null; $('boss-bar-wrap').classList.add('hidden');
     onBossDown(e);
@@ -491,8 +497,8 @@ function killEnemy(e, byBomb) {
     if (Math.random() < 0.012) dropPickup(e.x, e.y, 'heart');
     else if (Math.random() < 0.010) dropPickup(e.x, e.y, 'bomb');
     else if (Math.random() < 0.008) dropPickup(e.x, e.y, 'magnet');
-    else if (Math.random() < 0.016) dropPowerup(e.x, e.y);
-    if (e.type === 'bulwark' && Math.random() < 0.15) dropPowerup(e.x, e.y);
+    else if (Math.random() < 0.016 * (G.weeee ? 10 : 1)) dropPowerup(e.x, e.y);
+    if (e.type === 'bulwark' && Math.random() < (G.weeee ? 1 : 0.15)) dropPowerup(e.x, e.y);
     dropGem(e.x, e.y, e.xp);
     if (e.r > 20) { addShake(0.25); G.hitstop = Math.max(G.hitstop, 0.03); }
   }
@@ -573,6 +579,7 @@ function updatePouch() {
   });
 }
 function gainXp(v) {
+  if (G.weeee) v *= 10;
   player.xp += v;
   AudioSys.gem();
   while (player.xp >= player.xpNext) {
@@ -583,7 +590,20 @@ function gainXp(v) {
     AudioSys.levelup();
     burst(player.x, player.y, '#ffcf4d', 30, 320, 0.7, 4);
   }
-  if (G.pendingLevels > 0 && G.state === 'playing') openLevelUp();
+  if (G.pendingLevels > 0 && G.state === 'playing') {
+    if (G.weeee) { while (G.pendingLevels > 0) { G.pendingLevels--; autoUpgrade(); } }
+    else openLevelUp();
+  }
+}
+function autoUpgrade() {
+  const picks = rollUpgradeChoices();
+  const c = picks[randi(0, picks.length - 1)];
+  if (!c) return;
+  if (c.kind === 'wnew') { player.weapons[c.id] = 1; player.wcd[c.id] = 0; }
+  else if (c.kind === 'wup') player.weapons[c.id]++;
+  else applyStat(c.id);
+  floater(player.x, player.y - 40, 'AUTO LV ' + player.level, '#ffcf4d', true);
+  updateWeaponsHUD();
 }
 
 /* ---------------- spawning ---------------- */
@@ -657,7 +677,7 @@ function onBossDown(e) {
 /* ---------------- weapons fire ---------------- */
 function aimAngle() { return player.aim; }
 function fireBullet(x, y, ang, spd, dmg, r, color, pierce, homing, life) {
-  if (pBullets.length > 500) return;
+  if (pBullets.length > (G.weeee ? 2000 : 500)) return;
   pBullets.push({ x, y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, dmg: dmg * player.dmgM * (player.fx.rampage > 0 ? 2 : 1), r: r || 5, color, pierce: pierce || 0, homing: !!homing, life: life || 1.6, hitSet: homing ? null : new Set() });
 }
 function updateWeapons(dt) {
@@ -671,15 +691,22 @@ function updateWeapons(dt) {
     const lv = w.blaster;
     if (firing && cd.blaster <= 0) {
       cd.blaster = Math.max(0.07, 0.24 - lv * 0.014) / m;
-      const n = lv >= 5 ? 2 : 1;
-      for (let i = 0; i < n; i++) {
-        const off = n === 2 ? (i === 0 ? -5 : 5) : 0;
-        const px = player.x + Math.cos(ax) * 20 - Math.sin(ax) * off;
-        const py = player.y + Math.sin(ax) * 20 + Math.cos(ax) * off;
-        fireBullet(px, py, ax + rand(-0.03, 0.03), 900, 11 + lv * 3.2, 5, '#35e0ff', lv >= 7 ? 2 : lv >= 3 ? 1 : 0);
-      }
-      if (split) {
-        for (const sa of [-0.14, 0.14]) fireBullet(player.x + Math.cos(ax) * 20, player.y + Math.sin(ax) * 20, ax + sa, 900, 11 + lv * 3.2, 5, '#35e0ff', 0);
+      if (G.weeee) {
+        for (let i = 0; i < 21; i++) {
+          const a2 = ax + (i / 20 - 0.5) * 1.0;
+          fireBullet(player.x + Math.cos(ax) * 20, player.y + Math.sin(ax) * 20, a2, 900, 11 + lv * 3.2, 5, '#35e0ff', 2);
+        }
+      } else {
+        const n = lv >= 5 ? 2 : 1;
+        for (let i = 0; i < n; i++) {
+          const off = n === 2 ? (i === 0 ? -5 : 5) : 0;
+          const px = player.x + Math.cos(ax) * 20 - Math.sin(ax) * off;
+          const py = player.y + Math.sin(ax) * 20 + Math.cos(ax) * off;
+          fireBullet(px, py, ax + rand(-0.03, 0.03), 900, 11 + lv * 3.2, 5, '#35e0ff', lv >= 7 ? 2 : lv >= 3 ? 1 : 0);
+        }
+        if (split) {
+          for (const sa of [-0.14, 0.14]) fireBullet(player.x + Math.cos(ax) * 20, player.y + Math.sin(ax) * 20, ax + sa, 900, 11 + lv * 3.2, 5, '#35e0ff', 0);
+        }
       }
       burst(player.x + Math.cos(ax) * 24, player.y + Math.sin(ax) * 24, '#35e0ff', 1, 120, 0.12, 3);
       AudioSys.shoot();
@@ -692,9 +719,9 @@ function updateWeapons(dt) {
     const lv = w.spread;
     if (firing && cd.spread <= 0) {
       cd.spread = Math.max(0.3, 0.75 - lv * 0.035) / m;
-      const n = 4 + Math.min(4, Math.floor(lv / 1.5)) + (split ? 2 : 0);
+      const n = (4 + Math.min(4, Math.floor(lv / 1.5)) + (split ? 2 : 0)) * (G.weeee ? 5 : 1);
       for (let i = 0; i < n; i++) {
-        const a = ax + (i / (n - 1) - 0.5) * (0.7 + lv * 0.03 + (split ? 0.3 : 0));
+        const a = ax + (i / (n - 1) - 0.5) * (0.7 + lv * 0.03 + (split ? 0.3 : 0) + (G.weeee ? 1.2 : 0));
         fireBullet(player.x, player.y, a, rand(700, 850), 8 + lv * 2.4, 5, '#ffb020', 0, false, 0.55);
       }
       addShake(0.08); AudioSys.spread();
@@ -710,6 +737,9 @@ function updateWeapons(dt) {
       if (split) {
         for (const sa of [-0.1, 0.1]) fireBullet(player.x, player.y, ax + sa, 1600, 50 + lv * 22, 7, '#b26bff', 6 + lv, false, 1.1);
       }
+      if (G.weeee) {
+        for (let i = 0; i < 9; i++) fireBullet(player.x, player.y, ax + (i / 8 - 0.5) * 0.8, 1600, 50 + lv * 22, 7, '#b26bff', 6 + lv, false, 1.1);
+      }
       burst(player.x, player.y, '#b26bff', 8, 300, 0.3, 4);
       addShake(0.15); AudioSys.rail();
     }
@@ -720,7 +750,7 @@ function updateWeapons(dt) {
     const lv = w.missiles;
     if (cd.missiles <= 0) {
       cd.missiles = Math.max(0.3, 0.95 - lv * 0.07) / m;
-      const n = 1 + Math.floor(lv / 3) + (split ? 1 : 0);
+      const n = (1 + Math.floor(lv / 3) + (split ? 1 : 0)) * (G.weeee ? 8 : 1);
       for (let i = 0; i < n; i++) fireBullet(player.x, player.y, ax + Math.PI + rand(-0.6, 0.6), 420, 16 + lv * 7, 6, '#ff7a3d', 0, true, 3);
       AudioSys.missile();
     }
@@ -740,7 +770,7 @@ function updateWeapons(dt) {
         if (d2 < bd) { bd = d2; best = e; }
       }
       if (best) {
-        const chains = 2 + Math.floor(lv / 2) + (player.fx.splitfire > 0 ? 1 : 0);
+        const chains = 2 + Math.floor(lv / 2) + (player.fx.splitfire > 0 ? 1 : 0) + (G.weeee ? 8 : 0);
         let from = { x: player.x, y: player.y }, cur = best;
         const hit = new Set();
         for (let i = 0; i < chains && cur; i++) {
@@ -1271,7 +1301,7 @@ function updateGemsPickups(dt) {
       g.x += g.vx * dt * 2; g.y += g.vy * dt * 2;
     }
     if (d2 < (p.r + 12) * (p.r + 12)) {
-      g.life = 0; G.score += g.v * 5;
+      g.life = 0; G.score += g.v * 5 * (G.weeee ? 100 : 1);
       gainXp(g.v);
       burst(g.x, g.y, '#35e0ff', 3, 160, 0.25, 2.5);
     }
@@ -1738,27 +1768,28 @@ function toggleMute() {
   saveSettings(); AudioSys.setVolumes();
 }
 function enterConfirm() {
-  if (!$('menu').classList.contains('hidden')) startFromMenu(false);
-  else if (!$('gameover').classList.contains('hidden')) { AudioSys.ui(); resetRun(G.endless); updateBombHUD(); }
+  if (!$('menu').classList.contains('hidden')) startFromMenu(false, false);
+  else if (!$('gameover').classList.contains('hidden')) { AudioSys.ui(); resetRun(G.endless, G.weeee); updateBombHUD(); }
   else if (!$('victory').classList.contains('hidden')) { AudioSys.ui(); G.endless = true; G.state = 'playing'; showScreen(null); $('hud').classList.remove('hidden'); AudioSys.startMusic(); }
 }
-function startFromMenu(endless) {
+function startFromMenu(endless, weeee) {
   AudioSys.ensure(); AudioSys.ui();
   G.diffM = DIFFS[settings.diff] || DIFFS[1];
-  resetRun(endless);
+  resetRun(endless, weeee);
   updateBombHUD();
 }
 function bindUI() {
-  $('btn-start').onclick = () => startFromMenu(false);
-  $('btn-endless').onclick = () => startFromMenu(true);
+  $('btn-start').onclick = () => startFromMenu(false, false);
+  $('btn-endless').onclick = () => startFromMenu(true, false);
+  $('btn-weeee').onclick = () => startFromMenu(false, true);
   $('btn-how').onclick = () => { AudioSys.ensure(); AudioSys.ui(); showScreen('howto'); };
   $('btn-how-back').onclick = () => { AudioSys.ui(); showScreen('menu'); };
   $('btn-settings').onclick = () => { AudioSys.ensure(); AudioSys.ui(); syncSettingsUI(); showScreen('settings'); };
   $('btn-settings-back').onclick = () => { AudioSys.ui(); readSettingsUI(); showScreen(G.state === 'playing' || G.state === 'paused' ? null : 'menu'); if (G.state === 'paused') showScreen('pause'); };
   $('btn-resume').onclick = resumeGame;
-  $('btn-restart').onclick = () => { AudioSys.ui(); resetRun(G.endless); updateBombHUD(); };
+  $('btn-restart').onclick = () => { AudioSys.ui(); resetRun(G.endless, G.weeee); updateBombHUD(); };
   $('btn-quit').onclick = () => { AudioSys.ui(); AudioSys.stopMusic(); G.state = 'menu'; $('hud').classList.add('hidden'); showScreen('menu'); refreshMenuStats(); };
-  $('btn-retry').onclick = () => { AudioSys.ui(); resetRun(G.endless); updateBombHUD(); };
+  $('btn-retry').onclick = () => { AudioSys.ui(); resetRun(G.endless, G.weeee); updateBombHUD(); };
   $('btn-go-menu').onclick = () => { AudioSys.ui(); G.state = 'menu'; showScreen('menu'); refreshMenuStats(); };
   $('btn-continue').onclick = () => { AudioSys.ui(); G.endless = true; G.state = 'playing'; showScreen(null); $('hud').classList.remove('hidden'); AudioSys.startMusic(); announce('ENDLESS MODE', '#ffcf4d'); };
   $('btn-vic-menu').onclick = () => { AudioSys.ui(); G.state = 'menu'; showScreen('menu'); refreshMenuStats(); };
