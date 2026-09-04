@@ -6,7 +6,6 @@ let currentChatId = null;
 let history = [];
 let sending = false;
 let msgCounter = 0;
-let currentEditCharKey = null;
 
 const $ = id => document.getElementById(id);
 
@@ -161,14 +160,6 @@ function renderCharGrid() {
     c.innerHTML = `<div class="char-card-avatar">${avatarImgHtml(v.avatar, v.name, 'loading="lazy"')}</div>
       <div class="char-card-name">${escapeHtml(v.name)}</div>`;
     c.onclick = () => selectCharacter(k);
-    if (v.remote) {
-      const editBtn = document.createElement('button');
-      editBtn.className = 'msg-action-btn char-edit-btn';
-      editBtn.title = 'Edit character';
-      editBtn.innerHTML = ICON_EDIT;
-      editBtn.onclick = (e) => { e.stopPropagation(); openCharModal(k); };
-      c.appendChild(editBtn);
-    }
     characterGrid.appendChild(c);
   }
 }
@@ -750,39 +741,6 @@ function buildActions(id) {
   return div;
 }
 
-// ─── Image helper (avatar only) ───
-const MAX_IMAGE_DIM = 1024;
-
-function compressImageFile(file) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onerror = () => resolve(null);
-    reader.onload = (e) => {
-      const raw = e.target.result;
-      const img = new Image();
-      img.onerror = () => resolve(raw);
-      img.onload = () => {
-        try {
-          const scale = Math.min(1, MAX_IMAGE_DIM / Math.max(img.width, img.height));
-          if (scale >= 1 && raw.length < 400000) { resolve(raw); return; }
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, Math.round(img.width * scale));
-          canvas.height = Math.max(1, Math.round(img.height * scale));
-          const cctx = canvas.getContext('2d');
-          cctx.fillStyle = '#0a0a0b';
-          cctx.fillRect(0, 0, canvas.width, canvas.height);
-          cctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL('image/jpeg', 0.85));
-        } catch (err) {
-          resolve(raw);
-        }
-      };
-      img.src = raw;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 // ─── Send ───
 sendBtn.onclick = sendMessage;
 chatInput.onkeydown = (e) => {
@@ -900,12 +858,7 @@ $('closeHistoryBtn').onclick = () => $('historyArea').classList.add('hidden');
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!$('charModal').classList.contains('hidden')) { closeCharModal(); return; }
   if (!$('historyArea').classList.contains('hidden')) $('historyArea').classList.add('hidden');
-});
-
-$('charModal').addEventListener('mousedown', (e) => {
-  if (e.target === $('charModal')) closeCharModal();
 });
 
 function renderHistoryPanel() {
@@ -965,166 +918,6 @@ renderSidebar();
 renderCharGrid();
 fetchRemoteCharacters();
 
-// ─── Character Creation / Editing ───
-let cmNameEl, cmGreetingEl, cmPromptEl, cmAvatarPreview, cmAvatarInput, cmAvatarBtn, cmAvatarClear;
-let newCharAvatar = null;
-
-function charModalInit() {
-  cmNameEl = $('cmName');
-  cmGreetingEl = $('cmGreeting');
-  cmPromptEl = $('cmPrompt');
-  cmAvatarPreview = $('cmAvatarPreview');
-  cmAvatarInput = $('cmAvatarInput');
-  cmAvatarBtn = $('cmAvatarBtn');
-  cmAvatarClear = $('cmAvatarClear');
-
-  $('newCharBtn').onclick = () => openCharModal();
-  $('closeCharModalBtn').onclick = closeCharModal;
-  $('cmDeleteBtn').onclick = deleteCharacter;
-  $('cmSaveBtn').onclick = saveCharacter;
-  cmAvatarBtn.onclick = () => cmAvatarInput.click();
-  cmAvatarInput.onchange = async () => {
-    const file = cmAvatarInput.files[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      alert('Please choose an image file');
-      cmAvatarInput.value = '';
-      return;
-    }
-    const dataUrl = await compressImageFile(file);
-    if (!dataUrl) {
-      alert('Could not read that image');
-      cmAvatarInput.value = '';
-      return;
-    }
-    newCharAvatar = dataUrl;
-    updateAvatarPreview();
-    cmAvatarInput.value = '';
-  };
-  cmAvatarClear.onclick = () => {
-    newCharAvatar = null;
-    cmAvatarInput.value = '';
-    updateAvatarPreview();
-  };
-}
-
-function openCharModal(editingKey) {
-  currentEditCharKey = editingKey || null;
-  newCharAvatar = null;
-  cmAvatarInput.value = '';
-  const char = editingKey ? characters[editingKey] : null;
-  cmNameEl.value = char ? char.name : '';
-  cmGreetingEl.value = char ? (char.greeting || '') : '';
-  cmPromptEl.value = char ? (char.systemPrompt || '') : '';
-  $('charModalTitle').textContent = char ? 'Edit Character' : 'New Character';
-  $('cmSaveBtn').textContent = char ? 'Save' : 'Create';
-  $('cmDeleteBtn').classList.toggle('hidden', !char);
-  if (char && char.avatar) newCharAvatar = safeAvatar(char.avatar) || null;
-  updateAvatarPreview();
-  $('charModal').classList.remove('hidden');
-  cmNameEl.focus();
-}
-
-function updateAvatarPreview() {
-  const safe = safeAvatar(newCharAvatar || '');
-  if (safe) {
-    newCharAvatar = safe;
-    cmAvatarPreview.style.backgroundImage = `url("${safe.replace(/"/g, '%22')}")`;
-    cmAvatarPreview.classList.remove('empty');
-  } else {
-    cmAvatarPreview.style.backgroundImage = '';
-    cmAvatarPreview.classList.add('empty');
-  }
-}
-
-function closeCharModal() {
-  $('charModal').classList.add('hidden');
-  currentEditCharKey = null;
-  newCharAvatar = null;
-}
-
-async function saveCharacter() {
-  const name = cmNameEl.value.trim();
-  if (!name) { cmNameEl.focus(); return; }
-  const payload = {
-    name,
-    greeting: cmGreetingEl.value,
-    systemPrompt: cmPromptEl.value,
-    avatar: newCharAvatar || '',
-  };
-  try {
-    let char;
-    if (currentEditCharKey) {
-      const res = await fetch(`${WORKER_URL}/api/characters/${encodeURIComponent(currentEditCharKey)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'save failed');
-      char = data.character;
-      characters[currentEditCharKey] = {
-        name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '', avatar: char.avatar || '', remote: true,
-      };
-      if (currentChar === currentEditCharKey) {
-        charName.textContent = characters[currentEditCharKey].name;
-        charGreeting.textContent = characters[currentEditCharKey].greeting || '';
-      }
-    } else {
-      const res = await fetch(`${WORKER_URL}/api/characters`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'create failed');
-      char = data.character;
-      characters[char.id] = {
-        name: char.name, greeting: char.greeting || '', systemPrompt: char.systemPrompt || '', avatar: char.avatar || '', remote: true,
-      };
-    }
-    closeCharModal();
-    renderSidebar();
-    renderCharGrid();
-    selectCharacter(char.id);
-  } catch (e) {
-    alert('Could not save character: ' + e.message);
-  }
-}
-
-async function deleteCharacter() {
-  if (!currentEditCharKey) return;
-  if (!confirm('Delete this character permanently?')) return;
-  try {
-    const res = await fetch(`${WORKER_URL}/api/characters/${encodeURIComponent(currentEditCharKey)}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || 'delete failed');
-    }
-    delete characters[currentEditCharKey];
-    saveData(loadData().filter(c => c.character !== currentEditCharKey));
-    if (currentChar === currentEditCharKey) {
-      currentChar = null;
-      currentChatId = null;
-      history = [];
-      messagesEl.innerHTML = '';
-      emptyState.classList.remove('hidden');
-      inputArea.classList.add('hidden');
-      charName.textContent = 'Select a Character';
-      charGreeting.textContent = '';
-      setChatAvatar(null);
-    }
-    closeCharModal();
-    renderSidebar();
-    renderCharGrid();
-    renderHistoryPanel();
-  } catch (e) {
-    alert('Could not delete character: ' + e.message);
-  }
-}
-
 window.clearAllData = function() {
   localStorage.clear();
   sessionStorage.clear();
@@ -1142,5 +935,3 @@ window.clearAllData = function() {
   renderHistoryPanel();
   console.log('All local data cleared. Reload the page to reset completely.');
 };
-
-charModalInit();
