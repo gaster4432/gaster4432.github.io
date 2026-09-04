@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="description" content="Starfall Protocol — a neon roguelite space shooter. Stack guns, hoard power-up items, go Titan Form, slay the Void Mother.">
+<meta name="theme-color" content="#05060f">
+<meta name="color-scheme" content="dark">
+<title>Starfall Protocol</title>
+<meta property="og:title" content="Starfall Protocol">
+<meta property="og:description" content="Starfall Protocol — a neon roguelite space shooter. Stack guns, hoard power-up items, go Titan Form, slay the Void Mother.">
+<meta property="og:url" content="https://gaster4432.github.io/starfall/">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://gaster4432.github.io/favicon-v2.ico">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Starfall Protocol">
+<meta name="twitter:description" content="Starfall Protocol — a neon roguelite space shooter. Stack guns, hoard power-up items, go Titan Form, slay the Void Mother.">
+<meta name="twitter:image" content="https://gaster4432.github.io/favicon-v2.ico">
+<link rel="icon" type="image/x-icon" href="/favicon-v2.ico">
+<link rel="stylesheet" href="style.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="game-root">
+  <canvas id="game"></canvas>
+  <div id="vignette"></div>
+  <div id="flash"></div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div id="hud-top">
+      <div id="hp-wrap">
+        <div id="hp-label">HULL</div>
+        <div id="hp-bar"><div id="hp-fill"></div><div id="hp-ghost"></div></div>
+        <div id="shield-bar"><div id="shield-fill"></div></div>
+      </div>
+      <div id="wave-box">
+        <div id="wave-label">WAVE</div>
+        <div id="wave-num">1</div>
+        <div id="timer">00:00</div>
+      </div>
+      <div id="score-box">
+        <div id="score-label">SCORE</div>
+        <div id="score-num">0</div>
+        <div id="kills-num">0 KILLS</div>
+      </div>
+    </div>
+    <div id="xp-bar"><div id="xp-fill"></div></div>
+    <div id="level-badge">LV 1</div>
+    <div id="fx-hud"></div>
+    <div id="pouch"></div>
+    <div id="dash-wrap"><div id="dash-fill"></div><span>DASH ▸ SHIFT</span></div>
+    <div id="bomb-wrap"><div id="bomb-pips"></div><span>BOMB ▸ Q / RMB</span></div>
+    <div id="weapons-hud"></div>
+    <div id="announce"></div>
+    <div id="combo"></div>
+    <div id="boss-bar-wrap" class="hidden"><div id="boss-name">VOID WARDEN</div><div id="boss-bar"><div id="boss-fill"></div></div></div>
+    <div id="toast-wrap"></div>
+  </div>
+
+  <!-- Touch controls -->
+  <div id="touch-ui" class="hidden">
+    <div id="stick-left" class="stick"><div class="nub"></div></div>
+    <div id="stick-right" class="stick"><div class="nub"></div></div>
+    <button id="btn-dash">DASH</button>
+    <button id="btn-bomb">BOMB</button>
+  </div>
+
+  <!-- MAIN MENU -->
+  <div id="menu" class="screen">
+    <div class="stars-title"></div>
+    <div class="menu-inner">
+      <div id="logo-sub">DEEP SPACE DEFENSE INITIATIVE</div>
+      <h1 id="logo">STARFALL<br><span>PROTOCOL</span></h1>
+      <div id="tagline">★ THE BEST GAME EVER ★ &nbsp;·&nbsp; survive the void · slay the swarm · kill the Mother</div>
+      <div class="menu-buttons">
+        <button id="btn-start" class="btn primary">▶ &nbsp;DEPLOY</button>
+        <button id="btn-how" class="btn">HOW TO PLAY</button>
+        <button id="btn-settings" class="btn">SETTINGS</button>
+        <button id="btn-endless" class="btn small">ENDLESS MODE (no final boss)</button>
+      </div>
+      <div class="menu-stats">
+        <div><span>BEST SCORE</span><b id="menu-best">0</b></div>
+        <div><span>BEST WAVE</span><b id="menu-wave">0</b></div>
+        <div><span>VICTORIES</span><b id="menu-wins">0</b></div>
+        <div><span>GAMES</span><b id="menu-games">0</b></div>
+      </div>
+      <div class="menu-footer">WASD move · mouse aim · hold LMB fire · SHIFT dash · Q bomb &nbsp;—&nbsp; headphones recommended 🔊</div>
+      <div class="difficulty-row">
+        <span>DIFFICULTY:</span>
+        <button class="diff" data-d="0">CADET</button>
+        <button class="diff active" data-d="1">PILOT</button>
+        <button class="diff" data-d="2">ACE</button>
+        <button class="diff" data-d="3">VOIDBORN</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HOW TO -->
+  <div id="howto" class="screen hidden">
+    <div class="panel">
+      <h2>FIELD MANUAL</h2>
+      <div class="how-grid">
+        <div><b>MOVE</b><p>WASD / Arrows / left stick. Outrun the swarm, don't get cornered.</p></div>
+        <div><b>AIM + FIRE</b><p>Mouse aims, hold LMB to fire. Auto-fire toggle in settings. Right stick on mobile.</p></div>
+        <div><b>DASH</b><p>SHIFT / SPACE — burst of speed + invulnerability. 2.2s cooldown. Dash through bullets.</p></div>
+        <div><b>BOMB</b><p>Q / Right-click — clears bullets + heavy damage. You start with 1, max 3.</p></div>
+        <div><b>LEVEL UP</b><p>Collect ◇ shards from kills. Each level: pick 1 of 3 upgrades. Stack weapons to LV 8.</p></div>
+        <div><b>SURVIVE</b><p>Waves escalate every 30s. Mini-bosses at 5/10/15. THE VOID MOTHER at wave 20. Good luck, Pilot.</p></div>
+        <div><b>ITEMS</b><p>Grab glowing cores — they go in your pouch (3 max). Press E / 1-3 or tap a slot to unleash.</p></div>
+      </div>
+      <div class="enemy-legend">
+        <span><i class="dot" style="background:#ff2d78"></i>Chaser</span>
+        <span><i class="dot" style="background:#ffb020"></i>Dasher</span>
+        <span><i class="dot" style="background:#7CFF00"></i>Splitter</span>
+        <span><i class="dot" style="background:#b26bff"></i>Stinger (shoots)</span>
+        <span><i class="dot" style="background:#35e0ff"></i>Bulwark (tank)</span>
+        <span><i class="dot" style="background:#ff4444"></i>★ BOSS ★</span>
+      </div>
+      <div id="power-legend"></div>
+      <button id="btn-how-back" class="btn primary">GOT IT</button>
+    </div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="settings" class="screen hidden">
+    <div class="panel">
+      <h2>SETTINGS</h2>
+      <label class="row"><span>Master volume</span><input id="set-vol" type="range" min="0" max="100" value="70"></label>
+      <label class="row"><span>Music volume</span><input id="set-mus" type="range" min="0" max="100" value="55"></label>
+      <label class="row"><span>Screen shake</span><input id="set-shake" type="range" min="0" max="100" value="100"></label>
+      <label class="row"><span>Particles</span><select id="set-particles"><option value="0">Low</option><option value="1" selected>High</option><option value="2">ULTRA</option></select></label>
+      <label class="row check"><span>Auto-fire (no need to hold LMB)</span><input id="set-autofire" type="checkbox" checked></label>
+      <label class="row check"><span>Show damage numbers</span><input id="set-dmg" type="checkbox" checked></label>
+      <label class="row check"><span>Mute (M)</span><input id="set-mute" type="checkbox"></label>
+      <button id="btn-settings-back" class="btn primary">SAVE & BACK</button>
+    </div>
+  </div>
+
+  <!-- PAUSE -->
+  <div id="pause" class="screen hidden">
+    <div class="panel">
+      <h2>PAUSED</h2>
+      <p class="dim">The void waits for no pilot. Well… right now it does.</p>
+      <button id="btn-resume" class="btn primary">RESUME</button>
+      <button id="btn-restart" class="btn">RESTART RUN</button>
+      <button id="btn-quit" class="btn">ABANDON TO MENU</button>
+    </div>
+  </div>
+
+  <!-- LEVEL UP -->
+  <div id="levelup" class="screen hidden">
+    <div class="levelup-inner">
+      <h2>SYSTEM UPGRADE <span id="lvl-num">LV 2</span></h2>
+      <p class="dim">Choose one. Choose wisely.</p>
+      <div id="cards"></div>
+      <div id="reroll-row"><button id="btn-reroll" class="btn small">⟳ REROLL (0)</button><span id="reroll-count" class="dim"></span></div>
+    </div>
+  </div>
+
+  <!-- GAME OVER -->
+  <div id="gameover" class="screen hidden">
+    <div class="panel wide">
+      <h2 id="go-title" class="death">SIGNAL LOST</h2>
+      <p id="go-sub" class="dim">Your ship blooms into a brief, beautiful firework.</p>
+      <div id="go-newbest" class="hidden">★ NEW BEST SCORE ★</div>
+      <div class="stats-grid">
+        <div><span>SCORE</span><b id="go-score">0</b></div>
+        <div><span>WAVE</span><b id="go-wave">0</b></div>
+        <div><span>TIME</span><b id="go-time">0:00</b></div>
+        <div><span>KILLS</span><b id="go-kills">0</b></div>
+        <div><span>LEVEL</span><b id="go-level">1</b></div>
+        <div><span>BEST</span><b id="go-best">0</b></div>
+      </div>
+      <button id="btn-retry" class="btn primary">RETRY ▸ DEPLOY AGAIN</button>
+      <button id="btn-go-menu" class="btn">MENU</button>
+    </div>
+  </div>
+
+  <!-- VICTORY -->
+  <div id="victory" class="screen hidden">
+    <div class="panel wide gold">
+      <h2 class="win">VOID MOTHER SLAIN</h2>
+      <p class="dim">The swarm scatters. The stars are yours, Ace. (Endless mode continues if you dare.)</p>
+      <div id="vic-newbest" class="hidden">★ NEW BEST SCORE ★</div>
+      <div class="stats-grid">
+        <div><span>SCORE</span><b id="vic-score">0</b></div>
+        <div><span>TIME</span><b id="vic-time">0:00</b></div>
+        <div><span>KILLS</span><b id="vic-kills">0</b></div>
+        <div><span>LEVEL</span><b id="vic-level">1</b></div>
+      </div>
+      <button id="btn-continue" class="btn primary">CONTINUE ▸ ENDLESS</button>
+      <button id="btn-vic-menu" class="btn">MENU</button>
+    </div>
+  </div>
+
+  <div id="fps" class="hidden">60</div>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
