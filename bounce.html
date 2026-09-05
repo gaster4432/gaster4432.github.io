@@ -88,7 +88,7 @@ html, body {
 </style>
 </head>
 <body>
-<div id="info">move mouse for controls · double-click reset</div>
+<div id="info">move mouse for controls · click to spawn burst · double-click reset · try 🎉 Party</div>
 <canvas id="canvas"></canvas>
 <div id="controls">
   <button id="homeBtn" title="Back to home">⌂</button>
@@ -101,8 +101,10 @@ html, body {
   <input type="range" id="sizeSlider" min="16" max="80" step="2" value="36">
   <button id="sizeUp">+</button>
   <button id="trailToggle">Trail</button>
+  <button id="partyBtn" title="Rainbow gravity chaos">🎉 Party</button>
+  <button id="soundBtn" title="Toggle boing sounds">🔊</button>
   <button id="resetBtn">Reset</button>
-  <span class="count-label" id="countLabel">1</span>
+  <span class="count-label" id="countLabel" title="balls">1</span>
 </div>
 
 <script>
@@ -115,8 +117,13 @@ window.addEventListener('resize', resize);
 
 let paused = false;
 let showTrail = false;
+let party = false;
+let soundOn = true;
 let emoji = '🐱';
 let baseSize = 36;
+let bounces = 0;
+let bestBounces = parseInt(localStorage.getItem('bounce_best') || '0', 10) || 0;
+let boingCtx = null;
 
 let balls = [];
 const MAX_BALLS = 150;
@@ -126,7 +133,43 @@ const countLabel = document.getElementById('countLabel');
 let curSpeed = parseFloat(speedSlider.value) * 1.5;
 
 function createBall(x, y, vx, vy, size) {
-  return { x, y, vx, vy, size, emoji };
+  return { x, y, vx, vy, size, emoji, hue: party ? Math.floor(Math.random() * 360) : 0 };
+}
+
+function boing(size) {
+  if (!soundOn) return;
+  try {
+    boingCtx = boingCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (boingCtx.state === 'suspended') boingCtx.resume();
+    const o = boingCtx.createOscillator(), g = boingCtx.createGain();
+    o.type = 'triangle';
+    const t = boingCtx.currentTime;
+    const f = 220 + curSpeed * 70 + (80 - Math.min(80, size)) * 3 + Math.random() * 120;
+    o.frequency.setValueAtTime(f, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(60, f * 0.5), t + 0.12);
+    g.gain.setValueAtTime(0.08, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+    o.connect(g); g.connect(boingCtx.destination);
+    o.start(t); o.stop(t + 0.15);
+  } catch (e) {}
+}
+
+function noteBounce() {
+  bounces++;
+  if (bounces > bestBounces) {
+    bestBounces = bounces;
+    try { localStorage.setItem('bounce_best', String(bestBounces)); } catch (e) {}
+  }
+  countLabel.title = bounces + ' bounces · best ' + bestBounces;
+}
+
+function spawnBurst(x, y) {
+  for (let i = 0; i < 5; i++) {
+    if (balls.length >= MAX_BALLS) break;
+    const angle = Math.random() * 2 * Math.PI;
+    addBall(x, y, Math.cos(angle) * curSpeed * 1.2, Math.sin(angle) * curSpeed * 1.2, baseSize);
+  }
+  countLabel.textContent = balls.length;
 }
 
 function addBall(x, y, vx, vy, size) {
@@ -152,14 +195,18 @@ function update() {
   if (paused) return;
   const newBalls = [];
   for (const b of balls) {
+    if (party) b.vy += 0.05;
     b.x += b.vx;
     b.y += b.vy;
+    if (party && b.hue != null) b.hue = (b.hue + 2) % 360;
     let hit = false;
     if (b.x - b.size / 2 < 0) { b.x = b.size / 2; b.vx = -b.vx; hit = true; }
     if (b.x + b.size / 2 > W) { b.x = W - b.size / 2; b.vx = -b.vx; hit = true; }
     if (b.y - b.size / 2 < 0) { b.y = b.size / 2; b.vy = -b.vy; hit = true; }
     if (b.y + b.size / 2 > H) { b.y = H - b.size / 2; b.vy = -b.vy; hit = true; }
     if (hit) {
+      boing(b.size);
+      noteBounce();
       const angle = Math.random() * 2 * Math.PI;
       if (balls.length + newBalls.length < MAX_BALLS) {
         newBalls.push(createBall(b.x, b.y, Math.cos(angle) * curSpeed, Math.sin(angle) * curSpeed, baseSize));
@@ -181,8 +228,11 @@ function draw() {
   ctx.textBaseline = 'middle';
   for (const b of balls) {
     ctx.font = `${b.size}px sans-serif`;
+    if (party && b.hue != null) ctx.filter = `hue-rotate(${b.hue}deg) saturate(1.6)`;
+    else ctx.filter = 'none';
     ctx.fillText(b.emoji, b.x, b.y);
   }
+  ctx.filter = 'none';
 }
 
 function loop() { update(); draw(); requestAnimationFrame(loop); }
@@ -224,10 +274,28 @@ $('trailToggle').onclick = () => {
   if (!showTrail) ctx.clearRect(0, 0, W, H);
 };
 
-$('resetBtn').onclick = () => initBalls(1);
+$('resetBtn').onclick = () => { initBalls(1); bounces = 0; countLabel.title = 'best ' + bestBounces; };
 $('homeBtn').onclick = () => { location.href = '/'; };
 
-canvas.ondblclick = () => initBalls(1);
+$('partyBtn').onclick = () => {
+  party = !party;
+  $('partyBtn').textContent = party ? '🎉 PARTY!' : '🎉 Party';
+  if (party && !showTrail) $('trailToggle').click();
+  for (const b of balls) if (b.hue == null || b.hue === 0) b.hue = Math.floor(Math.random() * 360);
+};
+
+$('soundBtn').onclick = () => {
+  soundOn = !soundOn;
+  $('soundBtn').textContent = soundOn ? '🔊' : '🔇';
+};
+
+canvas.addEventListener('pointerdown', (e) => {
+  const r = canvas.getBoundingClientRect();
+  spawnBurst(e.clientX - r.left, e.clientY - r.top);
+});
+countLabel.title = 'best ' + bestBounces;
+
+canvas.ondblclick = () => { initBalls(1); bounces = 0; };
 
 // Hide controls
 let hideTimer;

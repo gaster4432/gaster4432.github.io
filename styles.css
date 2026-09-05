@@ -660,9 +660,16 @@ a.logo:hover { text-decoration: none; opacity: 0.85; }
 .project-card:hover {
   background: rgba(255,255,255,0.04);
   border-color: rgba(59,130,246,0.25);
-  transform: translateY(-3px);
+  transform: translateY(-3px) rotate(-0.4deg) scale(1.01);
   box-shadow: 0 8px 40px rgba(0,0,0,0.3), 0 0 0 1px rgba(59,130,246,0.1);
 }
+.project-card:nth-child(even):hover { transform: translateY(-3px) rotate(0.4deg) scale(1.01); }
+@keyframes iconWobble {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-10deg) scale(1.1); }
+  75% { transform: rotate(10deg) scale(1.1); }
+}
+.project-card:hover .project-icon { animation: iconWobble 0.45s ease; }
 .project-card:hover::before { opacity: 1; }
 .project-card:active {
   transform: translateY(-1px);

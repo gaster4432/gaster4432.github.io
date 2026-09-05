@@ -123,12 +123,12 @@
     </div>
 
     <div class="welcome-footer">
-      <p>gaster4432 &middot; 2026</p>
+      <p id="footJoke">gaster4432 &middot; 2026</p>
     </div>
   </div>
 </div>
 
-<div id="homeCat" style="position:fixed;pointer-events:none;z-index:0;font-size:24px;opacity:0.12;transition:opacity 0.3s" aria-hidden="true">🐱</div>
+<div id="homeCat" title="pspspsps" style="position:fixed;pointer-events:auto;cursor:pointer;z-index:0;font-size:24px;opacity:0.12;transition:opacity 0.3s, scale 0.15s" aria-hidden="true">🐱</div>
 
 <script>
 (function() {
@@ -166,6 +166,134 @@
     a.volume = 0.5;
     a.play().catch(function(){});
   }
+})();
+
+(function() {
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Rotating footer jokes
+  var jokes = [
+    'gaster4432 \u00B7 2026',
+    'gaster4432 \u00B7 2026 \u00B7 now with 20% more cats',
+    'gaster4432 \u00B7 you found the footer. proud of you.',
+    'gaster4432 \u00B7 100% useless screensavers guaranteed',
+    'gaster4432 \u00B7 tip: type the konami code',
+    'gaster4432 \u00B7 pspspsps (click the ghost cat)',
+    'gaster4432 \u00B7 visit #' + (parseInt(localStorage.getItem('visit_count') || '1', 10)) + ' — loyalty!',
+    'gaster4432 \u00B7 no pixels were harmed',
+    'gaster4432 \u00B7 certified balls-in-yo-jaws free (mostly)',
+    'gaster4432 \u00B7 made of vanilla JS and bad decisions'
+  ];
+  var fj = document.getElementById('footJoke');
+  if (fj) fj.textContent = jokes[Math.floor(Math.random() * jokes.length)];
+
+  // Clickable ghost cat: meow/squeak + mini-cat burst
+  var hc = document.getElementById('homeCat');
+  var actx = null;
+  function squeak(base) {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      var o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'sine';
+      var t = actx.currentTime;
+      o.frequency.setValueAtTime(base || 600, t);
+      o.frequency.exponentialRampToValueAtTime((base || 600) * 1.8, t + 0.12);
+      g.gain.setValueAtTime(0.12, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t); o.stop(t + 0.2);
+    } catch (e) {}
+  }
+  function miniBurst(x, y) {
+    if (reduce) return;
+    var emojis = ['\uD83D\uDC31', '\uD83D\uDE38', '\uD83D\uDE3B', '\uD83D\uDE3C', '✨'];
+    for (var i = 0; i < 5; i++) {
+      var s = document.createElement('div');
+      s.textContent = emojis[i % emojis.length];
+      s.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:5;pointer-events:none;font-size:20px;transition:transform 0.8s ease-out,opacity 0.8s';
+      document.body.appendChild(s);
+      (function(el, j) {
+        requestAnimationFrame(function() {
+          el.style.transform = 'translate(' + ((j - 2) * 34 + (Math.random() * 20 - 10)) + 'px,' + (-50 - Math.random() * 50) + 'px) rotate(' + (Math.random() * 90 - 45) + 'deg)';
+          el.style.opacity = '0';
+        });
+        setTimeout(function() { el.remove(); }, 850);
+      })(s, i);
+    }
+  }
+  if (hc) {
+    hc.addEventListener('click', function(e) {
+      squeak(500 + Math.random() * 500);
+      hc.style.scale = '1.6';
+      setTimeout(function() { hc.style.scale = '1'; }, 160);
+      miniBurst(e.clientX || window.innerWidth / 2, e.clientY || window.innerHeight / 2);
+    });
+  }
+
+  // Konami code -> cat invasion + confetti + sound
+  var seq = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
+  var pos = 0;
+  function playJaws() {
+    var a = new Audio('Balls In Yo Jaws.mp3');
+    a.volume = 0.5;
+    a.play().catch(function(){});
+  }
+  function confetti() {
+    if (reduce) return;
+    var c = document.createElement('canvas');
+    c.style.cssText = 'position:fixed;inset:0;z-index:50;pointer-events:none';
+    c.width = window.innerWidth; c.height = window.innerHeight;
+    document.body.appendChild(c);
+    var ctx = c.getContext('2d');
+    var cols = ['#3b82f6', '#14b8a6', '#ff2d78', '#ffcf4d', '#7cff6b', '#fff'];
+    var ps = [];
+    for (var i = 0; i < 150; i++) ps.push({ x: Math.random() * c.width, y: -20 - Math.random() * 100, w: 5 + Math.random() * 6, h: 8 + Math.random() * 8, vy: 2 + Math.random() * 4, vx: -1.5 + Math.random() * 3, r: Math.random() * Math.PI, vr: -0.1 + Math.random() * 0.2, col: cols[i % cols.length] });
+    var t0 = Date.now();
+    (function tick() {
+      ctx.clearRect(0, 0, c.width, c.height);
+      for (var k = 0; k < ps.length; k++) {
+        var p = ps[k];
+        p.x += p.vx; p.y += p.vy; p.r += p.vr;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r);
+        ctx.fillStyle = p.col; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      }
+      if (Date.now() - t0 < 3000) requestAnimationFrame(tick);
+      else c.remove();
+    })();
+  }
+  function catInvasion() {
+    playJaws();
+    confetti();
+    if (reduce) return;
+    var cats = ['\uD83D\uDC31', '\uD83D\uDE38', '\uD83D\uDE39', '\uD83D\uDE3B', '\uD83D\uDE40'];
+    for (var i = 0; i < 28; i++) {
+      var d = document.createElement('div');
+      d.textContent = cats[i % cats.length];
+      var sz = 18 + Math.random() * 30;
+      d.style.cssText = 'position:fixed;left:' + (Math.random() * 100) + 'vw;top:-50px;z-index:49;pointer-events:none;font-size:' + sz + 'px';
+      document.body.appendChild(d);
+      (function(el) {
+        var y = -50, vy = 2 + Math.random() * 3, rot = 0, vr = -3 + Math.random() * 6;
+        var sway = Math.random() * 100;
+        (function fall() {
+          y += vy; rot += vr * 0.1;
+          el.style.top = y + 'px';
+          el.style.transform = 'translateX(' + (Math.sin(y / 40 + sway) * 30) + 'px) rotate(' + rot + 'deg)';
+          if (y < window.innerHeight + 60) requestAnimationFrame(fall);
+          else el.remove();
+        })();
+      })(d);
+    }
+  }
+  document.addEventListener('keydown', function(e) {
+    var k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (k === seq[pos]) {
+      pos++;
+      if (pos === seq.length) { pos = 0; catInvasion(); }
+    } else {
+      pos = (k === seq[0]) ? 1 : 0;
+    }
+  });
 })();
 </script>
 </body>

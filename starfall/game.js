@@ -480,6 +480,12 @@ function killEnemy(e, byBomb) {
   e.dead = true;
   G.kills++;
   G.combo++; G.comboT = 3; G.bestCombo = Math.max(G.bestCombo, G.combo);
+  const COMBO_TAUNTS = { 2: 'DOUBLE KILL!', 3: 'TRIPLE KILL!', 4: 'QUAD DAMAGE!', 5: 'RAMPAGE!', 8: 'UNSTOPPABLE!', 12: 'VOID REAPER!', 20: 'WEEEEE!', 30: 'STARFALL LEGEND!', 50: 'TOUCH GRASS (NEVER)!' };
+  if (COMBO_TAUNTS[G.combo]) {
+    floater(e.x, e.y - 30, COMBO_TAUNTS[G.combo], '#ffcf4d', true);
+    if (G.combo >= 8) announce(COMBO_TAUNTS[G.combo], '#ffcf4d');
+    try { AudioSys.tone(420 + Math.min(G.combo, 30) * 28, 0.12, 'square', 0.1); } catch (err) {}
+  }
   const mult = 1 + Math.min(G.combo, 100) * 0.02;
   G.score += Math.round(e.score * mult * G.diffM.scoreM * (G.weeee ? 100 : 1));
   burst(e.x, e.y, e.color, e.boss ? 90 : e.r > 20 ? 26 : 12, e.boss ? 520 : 340, 0.6, e.boss ? 6 : 4);
@@ -564,7 +570,7 @@ function activateItem(i) {
   p.fx[kind] = P.dur;
   floater(p.x, p.y - 34, P.name + '!', P.color, true);
   burst(p.x, p.y, P.color, 26, 380, 0.6, 4);
-  if (kind === 'titan') { AudioSys.titan(); addShake(0.7); flash(0.2); G.hitstop = Math.max(G.hitstop, 0.08); }
+  if (kind === 'titan') { AudioSys.titan(); addShake(1); flash(0.35); G.hitstop = Math.max(G.hitstop, 0.15); announce('TITAN FORM!', '#7cff6b'); burst(p.x, p.y, '#ffffff', 18, 420, 0.5, 4); }
   else AudioSys.power();
   updatePouch();
 }
@@ -957,6 +963,8 @@ function gameOver() {
   const isBest = endStats();
   setTimeout(() => {
     $('go-title').textContent = ['SIGNAL LOST', 'SHIP DESTROYED', 'VOID CLAIMS YOU'][randi(0, 2)];
+    const GO_QUIPS = ['Your ship blooms into a brief, beautiful firework.', 'The void accepts your donation of one (1) ship.', 'Skill issue? The swarm thinks so.', 'You dodged 99% of that. The 1% got you.', 'Respawn is just a state of mind. Retry?', 'The Void Mother sends her condolences (lies).', 'That dash had main-character energy. Almost worked.', 'WEEEEE mode forgives all sins. Just saying.'];
+    if ($('go-sub')) $('go-sub').textContent = GO_QUIPS[randi(0, GO_QUIPS.length - 1)];
     $('go-score').textContent = G.score.toLocaleString();
     $('go-wave').textContent = G.wave;
     $('go-time').textContent = fmtTime(G.time);
@@ -989,7 +997,11 @@ function update(dt) {
   if (G.waveT >= WAVE_LEN) {
     G.waveT -= dt; G.waveT = 0; G.wave++;
     if (!G.endless && BOSS_DEFS[G.wave]) { bossWarnT = 2; }
-    else announce('WAVE ' + G.wave, '#35e0ff');
+    else {
+      announce('WAVE ' + G.wave, '#35e0ff');
+      const WAVE_QUIPS = ['They just keep coming. Rude.', 'Wave cleared-ish. More friends inbound!', 'The void sends its regards.', 'Hydrate, Pilot. Then shoot.', 'Certified swarm moment.', 'Your insurance does not cover this.'];
+      toast(WAVE_QUIPS[G.wave % WAVE_QUIPS.length]);
+    }
     AudioSys.warn();
     if (!G.endless && BOSS_DEFS[G.wave]) setTimeout(() => { if (G.state === 'playing' || G.state === 'levelup') spawnBoss(G.wave); }, 1500);
     if (G.wave % 3 === 0) { player.bombs = Math.min(player.maxBombs, player.bombs + 1); updateBombHUD(); toast('+1 bomb cache'); }
@@ -1387,7 +1399,10 @@ function updateHUD() {
     `linear-gradient(90deg, #35e0ff ${dp * 100}%, rgba(53,224,255,.1) ${dp * 100}%)`;
   // combo
   const c = $('combo');
-  if (G.combo >= 8) { c.style.opacity = 1; c.innerHTML = `<b>x${G.combo}</b><span>COMBO</span>`; }
+  if (G.combo >= 8) {
+    const tier = G.combo >= 50 ? 'TOUCH GRASS (NEVER)' : G.combo >= 30 ? 'LEGEND' : G.combo >= 20 ? 'WEEEEE' : G.combo >= 12 ? 'VOID REAPER' : 'COMBO';
+    c.style.opacity = 1; c.innerHTML = `<b>x${G.combo}</b><span>${tier}</span>`;
+  }
   else c.style.opacity = 0;
   // boss bar
   if (G.boss && !G.boss.dead) $('boss-fill').style.width = clamp(G.boss.hp / G.boss.maxHp * 100, 0, 100) + '%';
