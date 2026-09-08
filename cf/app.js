@@ -227,21 +227,8 @@ function extractThinkingBlocks(text) {
 }
 
 function ensureReasoningEl(assistId) {
-  const msgEl = messagesEl.querySelector(`[data-msg-id="${assistId}"]`);
-  if (!msgEl) return null;
-  let sec = msgEl.querySelector('.reasoning-section');
-  let rc = msgEl.querySelector('.reasoning-content');
-  if (!sec) {
-    const span = msgEl.querySelector('.msg-text');
-    sec = document.createElement('div');
-    sec.className = 'reasoning-section';
-    sec.innerHTML = `<span class="reasoning-toggle">💭 Reasoning</span><div class="reasoning-content hidden"></div>`;
-    const t = sec.querySelector('.reasoning-toggle');
-    rc = sec.querySelector('.reasoning-content');
-    t.addEventListener('click', () => { rc.classList.toggle('hidden'); t.classList.toggle('collapsed'); });
-    if (span) msgEl.insertBefore(sec, span); else msgEl.appendChild(sec);
-  }
-  return { sec, rc };
+  // Disabled — reasoning hidden on site per request
+  return null;
 }
 
 function addMessage(role, content, id, isGreeting, reasoning) {
@@ -252,14 +239,7 @@ function addMessage(role, content, id, isGreeting, reasoning) {
 
   const extracted = extractThinkingBlocks(content);
   const displayContent = extracted.cleaned;
-  // Hide reasoning entirely on site (internal reasoning still happens in model via <thinking>)
-  const reasoningSection = document.createElement('div');
-  reasoningSection.className = 'reasoning-section hidden';
-  reasoningSection.innerHTML = `
-    <div class="reasoning-toggle">💭 Reasoning</div>
-    <div class="reasoning-content"></div>
-  `;
-  div.appendChild(reasoningSection);
+  // Reasoning hidden on site per request — no reasoning DOM added (model still reasons via <thinking> internally)
 
   const contentSpan = document.createElement('span');
   contentSpan.className = 'msg-text';
@@ -268,10 +248,6 @@ function addMessage(role, content, id, isGreeting, reasoning) {
 
   const actions = document.createElement('div');
   actions.className = 'msg-actions';
-
-  reasoningSection.querySelector('.reasoning-toggle').onclick = () => {
-    reasoningSection.classList.toggle('expanded');
-  };
 
   if (role === 'user') {
     const editBtn = document.createElement('button');
@@ -514,16 +490,23 @@ function makeSendBody(msg, sendHistory) {
 async function streamResponse(assistId, body) {
   let full = '';
   let reasoningText = '';
-  let reasoningEl = null;
-  let reasoningContentEl = null;
-
+  // frontend retry covers Cloudflare streaks (5/10 errors, streak up to 10) — combined with worker 6 tries = up to 10+ coverage
+  const MAX_RETRIES = 5;
+  let lastErr = null;
+  for(let attempt=0; attempt<MAX_RETRIES; attempt++){
   try {
+    if(attempt>0){
+      updateMsgText(assistId, (full ? full + "\n\n" : "") + `*Retrying (${attempt+1}/${MAX_RETRIES}) — backing off…*`);
+    }
     const res = await fetch(`${WORKER_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error('Request failed');
+    if (!res.ok){
+      const t = await res.text().catch(()=> '');
+      throw new Error(`Worker ${res.status}: ${t.slice(0,500)}`);
+    }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
@@ -540,34 +523,8 @@ async function streamResponse(assistId, body) {
           const chunk = JSON.parse(t.slice(6));
 
           if (chunk.reasoning) {
+            // Reasoning is internal — hidden on site per request (model still thinks via <thinking>, just not displayed)
             reasoningText += chunk.reasoning;
-            if (!reasoningEl) {
-              const msgEl = messagesEl.querySelector(`[data-msg-id="${assistId}"]`);
-              if (msgEl) {
-                const existingReasoning = msgEl.querySelector('.reasoning-section');
-                if (existingReasoning) existingReasoning.remove();
-                const contentSpan = msgEl.querySelector('.msg-text');
-                reasoningEl = document.createElement('div');
-                reasoningEl.className = 'reasoning-section';
-                reasoningEl.innerHTML = `<span class="reasoning-toggle">💭 Reasoning</span><div class="reasoning-content hidden"></div>`;
-                const toggle = reasoningEl.querySelector('.reasoning-toggle');
-                const rc = reasoningEl.querySelector('.reasoning-content');
-                toggle.addEventListener('click', () => {
-                  rc.classList.toggle('hidden');
-                  toggle.classList.toggle('collapsed');
-                });
-                if (contentSpan) {
-                  msgEl.insertBefore(reasoningEl, contentSpan);
-                } else {
-                  msgEl.appendChild(reasoningEl);
-                }
-                reasoningContentEl = rc;
-              }
-            }
-            if (reasoningContentEl) {
-              reasoningContentEl.innerHTML = escapeHtml(reasoningText).replace(/\n/g, '<br>');
-              messagesEl.scrollTop = messagesEl.scrollHeight;
-            }
           }
 
           if (chunk.content) {
@@ -591,11 +548,32 @@ async function streamResponse(assistId, body) {
       }
     }
   } catch (e) {
-    console.error('Stream request failed:', e);
-    full = full || 'Error: ' + e.message;
+    console.error(`Stream attempt ${attempt+1}/${MAX_RETRIES} failed:`, e);
+    lastErr = e;
+    // Retry on network / 502 / 429 — streaks up to 10 are covered by worker (6) + frontend (5)
+    const msg = e?.message || String(e);
+    const retryable = msg.includes('Worker 429') || msg.includes('Worker 500') || msg.includes('Worker 502') || msg.includes('Worker 503') || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Failed');
+    if(attempt < MAX_RETRIES-1 && retryable){
+      const delay = Math.min(7000, 600 * Math.pow(1.7, attempt) + Math.random()*400);
+      await new Promise(r=>setTimeout(r, delay));
+      continue;
+    }
+    full = full || 'Error: ' + msg + ` (after ${attempt+1} tries)`;
+    break;
+  }
+  // success — break outer retry loop, don't retry if we got content
+  if(full && !full.startsWith('Error:')) break;
+  // if we got error but it was a chunk.error (model returned error payload) also retry
+  if(full && full.startsWith('Error:') && attempt < MAX_RETRIES-1){
+    const delay = Math.min(7000, 600 * Math.pow(1.7, attempt) + Math.random()*400);
+    await new Promise(r=>setTimeout(r, delay));
+    continue;
+  }
+  break;
   }
   const extracted = extractThinkingBlocks(full);
   // Hide all reasoning on site — internal <thinking> still runs in model, just not displayed
+  if(lastErr && !full) full = 'Error: ' + (lastErr.message || 'request failed');
   return { full: extracted.cleaned, reasoning: '' };
 }
 

@@ -10,6 +10,14 @@ const CORS = {
   'Access-Control-Max-Age': '86400',
 };
 
+// --- Session ID gen for opencode free tier (fixes MissingSessionID 400) ---
+// Required since 2026-09-06: pi-mono#2824, openclaw#137165, earendil-works/pi#4847
+// Official CLI sends: x-opencode-client, x-opencode-session (stable per-conversation), x-opencode-project, x-opencode-request, User-Agent
+function randId(len = 16) {
+  try { return crypto.randomUUID().replace(/-/g, '').slice(0, len); }
+  catch { return Math.random().toString(36).slice(2, 2+len).padEnd(len,'0'); }
+}
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -105,46 +113,88 @@ export default {
     });
 
     // ==========================================
-    // OPENCODE MODEL
+    // OPENCODE MODEL — resilient with session IDs + retry + fallback (fixes 5/10 instability, streaks up to 10)
     // ==========================================
 
-    const model = 'ling-3.0-flash-fin-free';
+    const PRIMARY_MODEL = 'ling-3.0-flash-fin-free';
+    const FALLBACK_MODELS = ['big-pickle', 'mimo-v2.5-free', 'nemotron-3-ultra-free'];
+    const CANDIDATES = [PRIMARY_MODEL, ...FALLBACK_MODELS];
+    const MAX_ATTEMPTS = 6; // covers streaks of up to 10 when combined with frontend retry
+    const BASE_DELAY_MS = 450;
 
-    const aiResp = await fetch(
-      'https://opencode.ai/inference/openai/v1/chat/completions',
-      {
-        method: 'POST',
+    function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+    function isRetryable(status, text){
+      return status===429 || status===500 || status===502 || status===503 || status===504
+        || (text && (text.includes('FreeUsageLimitError') || text.includes('Rate limit') || text.includes('server_error') || text.includes('Internal') || text.includes('overloaded') || text.includes('temporarily unavailable')));
+    }
 
-        headers: {
-          'Content-Type': 'application/json',
-        },
+    let aiResp = null;
+    let lastErrorText = '';
+    let lastStatus = 0;
+    let modelUsed = PRIMARY_MODEL;
 
-        body: JSON.stringify({
-          model,
-          messages: msgs,
-          stream: true,
-          max_tokens: 2048,
-          temperature: 0.7,
-        }),
+    for(let attempt=0; attempt<MAX_ATTEMPTS; attempt++){
+      const tryModel = CANDIDATES[attempt % CANDIDATES.length];
+      modelUsed = tryModel;
+      const sessionId = randId(24);
+      const projectId = randId(24);
+      const requestId = randId(16);
+
+      try{
+        const controller = new AbortController();
+        const timeout = setTimeout(()=> controller.abort(), 20000);
+        const r = await fetch(
+          'https://opencode.ai/inference/openai/v1/chat/completions',
+          {
+            method: 'POST',
+            signal: controller.signal,
+            headers: {
+              'Content-Type': 'application/json',
+              'x-opencode-client': 'cli',
+              'x-opencode-session': sessionId,
+              'x-opencode-project': projectId,
+              'x-opencode-request': requestId,
+              'User-Agent': 'opencode/latest/1.3.15/cli',
+            },
+            body: JSON.stringify({
+              model: tryModel,
+              messages: msgs,
+              stream: true,
+              max_tokens: 2048,
+              temperature: 0.7,
+              reasoning: { enabled: true, effort: 'medium' },
+              reasoning_effort: 'medium',
+              include_reasoning: true,
+              enable_thinking: true,
+              thinking: { type: 'enabled', budget_tokens: 2000 },
+              stream_options: { include_usage: true },
+            }),
+          }
+        );
+        clearTimeout(timeout);
+        if(r.ok){ aiResp=r; break; }
+        lastErrorText = await r.text().catch(()=>'');
+        lastStatus = r.status;
+        console.error(`[Worker attempt ${attempt+1}/${MAX_ATTEMPTS}] ${tryModel} ${r.status}: ${lastErrorText.slice(0,400)}`);
+        if(!isRetryable(r.status, lastErrorText)){
+          aiResp=r; break;
+        }
+      } catch(e){
+        lastErrorText = e?.message || String(e);
+        lastStatus = 0;
+        console.error(`[Worker attempt ${attempt+1}/${MAX_ATTEMPTS}] ${tryModel} exception: ${lastErrorText}`);
       }
-    );
+      if(attempt < MAX_ATTEMPTS-1){
+        // exponential backoff with jitter: 450ms * 1.8^attempt, capped 7s
+        const delay = Math.min(7000, BASE_DELAY_MS * Math.pow(1.8, attempt) + Math.random()*400);
+        await sleep(delay);
+      }
+    }
 
-    if (!aiResp.ok) {
-      const errorText = await aiResp.text();
-
-      console.error(
-        'OpenCode request failed:',
-        aiResp.status,
-        errorText
-      );
-
-      return json(
-        {
-          error: 'AI request failed',
-          status: aiResp.status,
-        },
-        502
-      );
+    if(!aiResp || !aiResp.ok){
+      console.error('OpenCode all retries failed:', lastStatus, lastErrorText);
+      // Return retryable 502 so frontend can also retry with backoff (covers streaks > MAX_ATTEMPTS when combined)
+      return json({ error: 'AI request failed after retries', status: lastStatus || 502, details: lastErrorText.slice(0,800), modelTried: modelUsed }, 502);
     }
 
     // ==========================================
@@ -197,6 +247,28 @@ export default {
 
               const delta =
                 chunk?.choices?.[0]?.delta;
+              const choice = chunk?.choices?.[0];
+
+              // Reasoning (provider streams thinking separately) — handle all variants
+              const reasoningRaw = delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking ?? choice?.reasoning ?? chunk?.reasoning ?? null;
+              let reasoning = null;
+              if (reasoningRaw) {
+                reasoning = typeof reasoningRaw === 'string' ? reasoningRaw : (reasoningRaw.text ?? reasoningRaw.content ?? JSON.stringify(reasoningRaw));
+              }
+              // reasoning_details array variant
+              if (delta?.reasoning_details && Array.isArray(delta.reasoning_details)) {
+                for (const d of delta.reasoning_details) {
+                  const t = d.text || d.content || '';
+                  if (t) {
+                    fullReasoning += t;
+                    await writer.write(encoder.encode(`data: ${JSON.stringify({ reasoning: t })}\n\n`));
+                  }
+                }
+              }
+              if (reasoning) {
+                fullReasoning += reasoning;
+                await writer.write(encoder.encode(`data: ${JSON.stringify({ reasoning })}\n\n`));
+              }
 
               // Normal response text
               const content =
@@ -211,6 +283,11 @@ export default {
                     })}\n\n`
                   )
                 );
+              }
+
+              // Also forward tool_calls if present (for MCP-like tools)
+              if (delta?.tool_calls) {
+                await writer.write(encoder.encode(`data: ${JSON.stringify({ tool_calls: delta.tool_calls })}\n\n`));
               }
 
             } catch {
