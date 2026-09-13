@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Chat with AI characters powered by Cloudflare Workers AI.">
-<meta name="theme-color" content="#0a0a0b">
+<meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
 <title>PKAX</title>
 <meta property="og:title" content="PKAX">
@@ -17,7 +17,7 @@
 <meta name="twitter:description" content="Chat with AI characters powered by Cloudflare Workers AI.">
 <meta name="twitter:image" content="https://gaster4432.github.io/favicon-v2.ico">
 <link rel="icon" type="image/x-icon" href="/favicon-v2.ico">
-<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet" href="spicy.css">
 </head>
 <body>
 <div id="app">
@@ -25,6 +25,10 @@
     <aside class="sidebar">
       <div class="sidebar-header">
         <a class="logo" href="/" title="Back to home" style="text-decoration:none">PKAX</a>
+      </div>
+      <div class="sp-nav" role="navigation" aria-label="Quick nav">
+        <button type="button" id="spNavChats">Chats</button>
+        <button type="button" id="spNavDiscover">Discover</button>
       </div>
       <div class="sidebar-section-label">Characters</div>
       <div class="char-sidebar-list" id="charSidebarList"></div>
@@ -93,6 +97,17 @@
 
 <script src="characters.js"></script>
 <script src="app.js"></script>
+<script>
+(function() {
+  var chats = document.getElementById('spNavChats');
+  var disc = document.getElementById('spNavDiscover');
+  if (chats) chats.onclick = function() { document.getElementById('historyBtn').click(); };
+  if (disc) disc.onclick = function() {
+    var s = document.getElementById('characterSearch');
+    if (s) { s.focus(); s.scrollIntoView({ block: 'nearest' }); }
+  };
+})();
+</script>
 <script>
 (function() {
   var count = parseInt(localStorage.getItem('visit_count') || '0', 10) + 1;
