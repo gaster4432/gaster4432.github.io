@@ -136,17 +136,23 @@ async function fetchRemoteCharacters() {
 
 function renderSidebar() {
   charSidebarList.innerHTML = '';
+  let shown = 0;
   for (const [k, v] of Object.entries(characters)) {
     const recent = getMostRecentChat(k);
+    if (!recent) continue; // sidebar only shows characters you have chatted with
+    shown++;
     const item = document.createElement('div');
     item.className = 'sidebar-char' + (k === currentChar ? ' active' : '');
     item.innerHTML = `<div class="sidebar-char-avatar">${avatarImgHtml(v.avatar, v.name)}</div>
       <div class="sidebar-char-text">
         <span class="sidebar-char-name">${escapeHtml(v.name)}</span>
-        ${recent ? `<span class="sidebar-char-last">${escapeHtml((recent.title || 'Chat').slice(0, 30))}</span>` : ''}
+        <span class="sidebar-char-last">${escapeHtml((recent.title || 'Chat').slice(0, 30))}</span>
       </div>`;
     item.onclick = () => selectCharacter(k);
     charSidebarList.appendChild(item);
+  }
+  if (!shown) {
+    charSidebarList.innerHTML = '<p class="empty-hint">No chats yet — hit Discover to pick a character</p>';
   }
 }
 
@@ -188,6 +194,22 @@ function selectCharacter(key) {
       addMessage('assistant', char.greeting, null, true);
     }
   }
+  renderSidebar();
+  renderCharGrid();
+  renderHistoryPanel();
+}
+
+function showDiscover() {
+  currentChar = null;
+  currentChatId = null;
+  history = [];
+  charName.textContent = 'Discover';
+  charGreeting.textContent = 'Pick a character to start chatting';
+  setChatAvatar(null);
+  charPicker.classList.remove('hidden');
+  inputArea.classList.add('hidden');
+  messagesEl.innerHTML = '<div class="empty-state"><p>Choose a character above to start a new chat</p></div>';
+  if (characterSearch) characterSearch.value = '';
   renderSidebar();
   renderCharGrid();
   renderHistoryPanel();
@@ -791,7 +813,14 @@ function saveCurrentChat() {
 resetBtn.onclick = () => {
   if (!currentChar) return;
   if (currentChatId && !confirm('Clear this chat? This cannot be undone.')) return;
+  const clearedChar = currentChar;
   if (currentChatId) deleteChat(currentChatId);
+  // If that was the last chat with this character, drop them from the
+  // sidebar and return to Discover
+  if (getChatsForChar(clearedChar).length === 0) {
+    showDiscover();
+    return;
+  }
   // Start a truly fresh chat — don't auto-load the next recent chat
   currentChatId = null;
   history = [];
@@ -895,6 +924,11 @@ initCharacters();
 renderSidebar();
 renderCharGrid();
 fetchRemoteCharacters();
+
+// Top nav: Chats opens history, Discover returns to the all-characters grid
+if ($('spNavChats')) $('spNavChats').onclick = () => { renderHistoryPanel(); $('historyArea').classList.remove('hidden'); };
+if ($('spNavDiscover')) $('spNavDiscover').onclick = () => showDiscover();
+window.showDiscover = showDiscover;
 
 window.clearAllData = function() {
   localStorage.clear();

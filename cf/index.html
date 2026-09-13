@@ -99,17 +99,6 @@
 <script src="app.js"></script>
 <script>
 (function() {
-  var chats = document.getElementById('spNavChats');
-  var disc = document.getElementById('spNavDiscover');
-  if (chats) chats.onclick = function() { document.getElementById('historyBtn').click(); };
-  if (disc) disc.onclick = function() {
-    var s = document.getElementById('characterSearch');
-    if (s) { s.focus(); s.scrollIntoView({ block: 'nearest' }); }
-  };
-})();
-</script>
-<script>
-(function() {
   var count = parseInt(localStorage.getItem('visit_count') || '0', 10) + 1;
   localStorage.setItem('visit_count', count);
   if (count >= 50) {
