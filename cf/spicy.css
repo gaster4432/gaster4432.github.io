@@ -210,7 +210,7 @@ body {
 .chat-char-greeting { font-size: 12.5px; color: var(--sp-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42vw; }
 .chat-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
-/* ── Character picker strip ── */
+/* ── Discover grid (all characters) ── */
 .char-picker {
   padding: 12px 20px 8px;
   border-bottom: 1px solid var(--sp-line);
@@ -232,23 +232,22 @@ body {
 .search-input::placeholder { color: var(--sp-faint); }
 
 .char-grid {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
   gap: 10px;
-  padding: 10px 2px 6px;
-  overflow-x: auto;
+  padding: 12px 2px 8px;
+  overflow-y: auto;
+  max-height: 42vh;
   scrollbar-width: thin;
 }
 
 .char-card {
-  min-width: 148px;
-  max-width: 148px;
   background: var(--sp-panel-2);
   border: 1px solid var(--sp-line);
   border-radius: var(--sp-radius);
-  padding: 12px 10px;
+  padding: 14px 10px;
   text-align: center;
   cursor: pointer;
-  flex-shrink: 0;
   transition: transform 0.15s, border-color 0.15s;
 }
 
@@ -532,7 +531,7 @@ body {
   .messages { padding: 12px; }
   .msg { max-width: 88%; }
   .chat-char-greeting { max-width: 38vw; }
-  .char-card { min-width: 124px; max-width: 124px; }
+  .char-grid { grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
