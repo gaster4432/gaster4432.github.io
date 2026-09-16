@@ -687,7 +687,7 @@ function onBossDown(e) {
 /* ---------------- weapons fire ---------------- */
 function aimAngle() { return player.aim; }
 function fireBullet(x, y, ang, spd, dmg, r, color, pierce, homing, life) {
-  if (pBullets.length > (G.weeee ? 2000 : 500)) return;
+  if (pBullets.length > (G.weeee ? 5000 : 500)) return;
   pBullets.push({ x, y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, dmg: dmg * player.dmgM * (player.fx.rampage > 0 ? 2 : 1), r: r || 5, color, pierce: pierce || 0, homing: !!homing, life: life || 1.6, hitSet: homing ? null : new Set() });
 }
 function updateWeapons(dt) {
@@ -1023,8 +1023,8 @@ function update(dt) {
     const bossAlive = !!G.boss && !G.boss.dead;
     const interval = clamp(1.1 - G.wave * 0.045 - G.time / 600, 0.18, 1.1) * (bossAlive ? 2.2 : 1);
     G.spawnT = interval;
-    const mobM = G.weeee ? 3 : 1; // 3x mob spawns only in WEEEEE mode
-    const cap = Math.min((40 + G.wave * 8) * mobM, 700);
+    const mobM = G.weeee ? 100 : 1; // 100x mob spawns in WEEEEE mode
+    const cap = Math.min((40 + G.wave * 8) * mobM, 7000);
     if (enemies.length < cap) {
       const n = (1 + Math.floor(G.wave / 3) + (Math.random() < 0.3 ? 1 : 0)) * mobM;
       const types = unlockedTypes();
@@ -1229,7 +1229,7 @@ function updateEnemies(dt) {
     }
   }
   // remove dead + far cleanup
-  if (enemies.length > 600) enemies = enemies.filter(e => !e.dead);
+  if (enemies.length > 7000) enemies = enemies.filter(e => !e.dead);
   else if (enemies.some(e => e.dead)) enemies = enemies.filter(e => !e.dead);
   // cull ultra-far non-boss
   for (const e of enemies) {
