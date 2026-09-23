@@ -113,17 +113,29 @@ export default {
     });
 
     // ==========================================
-    // OPENCODE MODEL — resilient with session IDs + retry + fallback (fixes 5/10 instability, streaks up to 10)
+    // OPENCODE ZEN — official endpoint + exact CLI fingerprint + optional API key
+    // Endpoint: https://opencode.ai/zen/v1/chat/completions (per https://opencode.ai/docs/zen/)
+    // Free-tier gate is User-Agent based: must be exactly `opencode/<version>`
+    // (gateway strips x-opencode-* but passes User-Agent through).
+    // Anonymous free pool now 403s with FreeTierError outside the official
+    // client — set OPENCODE_API_KEY secret (Zen API key) to authenticate.
     // ==========================================
 
     const PRIMARY_MODEL = 'ling-3.0-flash-fin-free';
-    const FALLBACK_MODELS = ['big-pickle', 'mimo-v2.5-free', 'nemotron-3-ultra-free'];
+    const FALLBACK_MODELS = ['big-pickle', 'mimo-v2.5-free', 'nemotron-3-ultra-free', 'nemotron-3.5-lightning-free'];
     const CANDIDATES = [PRIMARY_MODEL, ...FALLBACK_MODELS];
     const MAX_ATTEMPTS = 6; // covers streaks of up to 10 when combined with frontend retry
     const BASE_DELAY_MS = 450;
+    const ZEN_URL = 'https://opencode.ai/zen/v1/chat/completions';
+    const OPENCODE_UA = 'opencode/1.3.15';
+    const ZEN_KEY = (env.OPENCODE_API_KEY || env.ZEN_API_KEY || '').trim();
 
     function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
     function isRetryable(status, text){
+      // 403 FreeTierError is NOT retryable — retrying just burns quota.
+      // Frontend only retries Worker 429/5xx, so returning upstream 403 stops the 5x hammer.
+      if (status === 403) return false;
+      if (text && text.includes('FreeTierError')) return false;
       return status===429 || status===500 || status===502 || status===503 || status===504
         || (text && (text.includes('FreeUsageLimitError') || text.includes('Rate limit') || text.includes('server_error') || text.includes('Internal') || text.includes('overloaded') || text.includes('temporarily unavailable')));
     }
@@ -143,30 +155,27 @@ export default {
       try{
         const controller = new AbortController();
         const timeout = setTimeout(()=> controller.abort(), 20000);
+        const headers = {
+          'Content-Type': 'application/json',
+          'x-opencode-client': 'cli',
+          'x-opencode-session': sessionId,
+          'x-opencode-project': projectId,
+          'x-opencode-request': requestId,
+          'User-Agent': OPENCODE_UA,
+        };
+        if (ZEN_KEY) headers['Authorization'] = `Bearer ${ZEN_KEY}`;
         const r = await fetch(
-          'https://opencode.ai/inference/openai/v1/chat/completions',
+          ZEN_URL,
           {
             method: 'POST',
             signal: controller.signal,
-            headers: {
-              'Content-Type': 'application/json',
-              'x-opencode-client': 'cli',
-              'x-opencode-session': sessionId,
-              'x-opencode-project': projectId,
-              'x-opencode-request': requestId,
-              'User-Agent': 'opencode/latest/1.3.15/cli',
-            },
+            headers,
             body: JSON.stringify({
               model: tryModel,
               messages: msgs,
               stream: true,
               max_tokens: 2048,
               temperature: 0.7,
-              reasoning: { enabled: true, effort: 'medium' },
-              reasoning_effort: 'medium',
-              include_reasoning: true,
-              enable_thinking: true,
-              thinking: { type: 'enabled', budget_tokens: 2000 },
               stream_options: { include_usage: true },
             }),
           }
@@ -193,6 +202,11 @@ export default {
 
     if(!aiResp || !aiResp.ok){
       console.error('OpenCode all retries failed:', lastStatus, lastErrorText);
+      // 403 FreeTierError = anonymous free pool blocked outside official client.
+      // Return 403 (not 502) so the frontend does NOT retry 5x — retrying can't help.
+      if (lastStatus === 403 || lastErrorText.includes('FreeTierError')) {
+        return json({ error: 'OpenCode free tier blocked for outside clients (403 FreeTierError). Add a Zen API key as OPENCODE_API_KEY secret: wrangler secret put OPENCODE_API_KEY --cwd cf', status: 403, details: lastErrorText.slice(0,800), modelTried: modelUsed }, 403);
+      }
       // Return retryable 502 so frontend can also retry with backoff (covers streaks > MAX_ATTEMPTS when combined)
       return json({ error: 'AI request failed after retries', status: lastStatus || 502, details: lastErrorText.slice(0,800), modelTried: modelUsed }, 502);
     }
