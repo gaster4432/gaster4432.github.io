@@ -11,12 +11,18 @@
 <meta property="og:description" content="An infinite bouncing cat screensaver with adjustable speed, size, and trail. Change the emoji, go wild.">
 <meta property="og:url" content="https://gaster4432.github.io/bounce.html">
 <meta property="og:type" content="website">
-<meta property="og:image" content="https://gaster4432.github.io/favicon-v2.ico">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="https://gaster4432.github.io/images/og-banner.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="gaster4432 — projects & things">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Bouncing Cat">
 <meta name="twitter:description" content="An infinite bouncing cat screensaver with adjustable speed, size, and trail. Change the emoji, go wild.">
-<meta name="twitter:image" content="https://gaster4432.github.io/favicon-v2.ico">
+<meta name="twitter:image" content="https://gaster4432.github.io/images/og-banner.png">
 <link rel="icon" type="image/x-icon" href="/favicon-v2.ico">
+<link rel="canonical" href="https://gaster4432.github.io/bounce.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Bouncing Cat","url":"https://gaster4432.github.io/bounce.html","applicationCategory":"GameApplication","operatingSystem":"Web browser","description":"An infinite bouncing cat screensaver with adjustable speed, size and trail.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+<link rel="stylesheet" href="/styles.css">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
@@ -52,6 +58,8 @@ html, body {
   justify-content: center;
 }
 #controls:hover { opacity: 1; }
+#controls:focus-within { opacity: 1; }
+@media (hover: none) { #controls { opacity: 1; } }
 #controls button {
   background: rgba(255,255,255,0.08);
   border: none;
@@ -76,9 +84,10 @@ html, body {
   pointer-events: none;
   text-align: center;
 }
+#info { color: rgba(255,255,255,0.5); }
 .count-label {
   font-size: 12px;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.55);
   min-width: 30px;
   text-align: center;
 }
@@ -89,20 +98,20 @@ html, body {
 </head>
 <body>
 <div id="info">move mouse for controls · click to spawn burst · double-click reset · try 🎉 Party</div>
-<canvas id="canvas"></canvas>
+<canvas id="canvas" role="img" aria-label="Bouncing emoji screensaver canvas"></canvas>
 <div id="controls">
-  <button id="homeBtn" title="Back to home">⌂</button>
+  <button id="homeBtn" title="Back to home" aria-label="Back to home">⌂</button>
   <button id="toggleBtn">Pause</button>
-  <button id="speedDown">−</button>
-  <input type="range" id="speedSlider" min="0.5" max="5" step="0.5" value="2">
-  <button id="speedUp">+</button>
-  <input type="text" id="emojiInput" value="🐱">
-  <button id="sizeDown">−</button>
-  <input type="range" id="sizeSlider" min="16" max="80" step="2" value="36">
-  <button id="sizeUp">+</button>
+  <button id="speedDown" aria-label="Decrease speed">−</button>
+  <input type="range" id="speedSlider" aria-label="Speed" min="0.5" max="5" step="0.5" value="2">
+  <button id="speedUp" aria-label="Increase speed">+</button>
+  <input type="text" id="emojiInput" aria-label="Bouncing emoji" value="🐱">
+  <button id="sizeDown" aria-label="Smaller">−</button>
+  <input type="range" id="sizeSlider" aria-label="Size" min="16" max="80" step="2" value="36">
+  <button id="sizeUp" aria-label="Larger">+</button>
   <button id="trailToggle">Trail</button>
   <button id="partyBtn" title="Rainbow gravity chaos">🎉 Party</button>
-  <button id="soundBtn" title="Toggle boing sounds">🔊</button>
+  <button id="soundBtn" title="Toggle boing sounds" aria-label="Toggle sound">🔊</button>
   <button id="resetBtn">Reset</button>
   <span class="count-label" id="countLabel" title="balls">1</span>
 </div>

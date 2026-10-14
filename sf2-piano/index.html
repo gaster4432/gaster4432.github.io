@@ -11,45 +11,51 @@
 <meta property="og:description" content="Upload any SoundFont (.sf2) and play it as a piano in the browser. Keyboard, mouse, and multi-touch supported.">
 <meta property="og:url" content="https://gaster4432.github.io/sf2-piano/">
 <meta property="og:type" content="website">
-<meta property="og:image" content="https://gaster4432.github.io/favicon-v2.ico">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="https://gaster4432.github.io/images/og-banner.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="gaster4432 — projects & things">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="SF2 Piano">
 <meta name="twitter:description" content="Upload any SoundFont (.sf2) and play it as a piano in the browser. Keyboard, mouse, and multi-touch supported.">
-<meta name="twitter:image" content="https://gaster4432.github.io/favicon-v2.ico">
+<meta name="twitter:image" content="https://gaster4432.github.io/images/og-banner.png">
 <link rel="icon" type="image/x-icon" href="/favicon-v2.ico">
+<link rel="canonical" href="https://gaster4432.github.io/sf2-piano/">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"SF2 Piano","url":"https://gaster4432.github.io/sf2-piano/","applicationCategory":"MultimediaApplication","operatingSystem":"Web browser","description":"Upload any SoundFont (.sf2) and play it as a piano in the browser.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+<link rel="stylesheet" href="/styles.css">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; background: #0a0a0b; color: #e2e8f0; font-family: system-ui, sans-serif; overflow: hidden; }
 #app { display: flex; flex-direction: column; height: 100%; }
 
 header { position: relative; text-align: center; padding: 16px 20px; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
-header h1 { font-size: 20px; font-weight: 600; background: linear-gradient(135deg, #3b82f6, #14b8a6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-header p { font-size: 13px; color: rgba(255,255,255,0.3); margin-top: 2px; }
-.home-link { position: absolute; top: 50%; right: 16px; transform: translateY(-50%); font-size: 12px; color: rgba(255,255,255,0.3); text-decoration: none; padding: 4px 10px; border-radius: 8px; transition: all 0.15s; }
-.home-link:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.06); }
+header h1 { font-size: 20px; font-weight: 600; background: linear-gradient(135deg, var(--brand-1), var(--brand-2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+header p { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+.home-link { position: absolute; top: 50%; right: 16px; transform: translateY(-50%); font-size: 12px; color: rgba(255,255,255,0.55); text-decoration: none; padding: 4px 10px; border-radius: 8px; transition: all 0.15s; }
+.home-link:hover { color: #fff; background: rgba(255,255,255,0.06); text-decoration: none; }
 
 #controls { display: flex; gap: 10px; padding: 10px 20px; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
-#controls label { font-size: 12px; color: rgba(255,255,255,0.4); }
-#status { font-size: 12px; color: rgba(255,255,255,0.25); flex: 1; text-align: right; }
+#controls label { font-size: 12px; color: rgba(255,255,255,0.6); }
+#status { font-size: 12px; color: rgba(255,255,255,0.55); flex: 1; text-align: right; }
 input[type="file"] { display: none; }
 .btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #e2e8f0; padding: 6px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.15s; }
 .btn:hover { background: rgba(255,255,255,0.12); }
-.btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+.btn-primary { background: var(--brand-1); border-color: var(--brand-1); color: #fff; }
 .btn-primary:hover { background: #2563eb; }
 .btn-primary:disabled { opacity: 0.3; cursor: default; }
 select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #e2e8f0; padding: 5px 10px; border-radius: 8px; font-size: 13px; }
 .volume-wrap { display: flex; align-items: center; gap: 6px; }
-.volume-wrap input[type="range"] { width: 60px; accent-color: #3b82f6; }
+.volume-wrap input[type="range"] { width: 60px; accent-color: var(--brand-1); }
 
 #dropZone { flex: 1; display: flex; align-items: center; justify-content: center; }
 .drop-box { border: 2px dashed rgba(255,255,255,0.1); border-radius: 16px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; max-width: 360px; }
-.drop-box:hover, .drop-box.dragover { border-color: #3b82f6; background: rgba(59,130,246,0.05); }
+.drop-box:hover, .drop-box.dragover { border-color: var(--brand-1); background: rgba(59,130,246,0.05); }
 .drop-box .icon { font-size: 40px; margin-bottom: 10px; }
 .drop-box h2 { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
-.drop-box p { font-size: 13px; color: rgba(255,255,255,0.3); }
+.drop-box p { font-size: 13px; color: rgba(255,255,255,0.6); }
 
 #pianoWrap { display: none; flex-direction: column; flex: 1; overflow: hidden; }
-#pianoInfo { text-align: center; padding: 8px; font-size: 12px; color: rgba(255,255,255,0.2); flex-shrink: 0; }
+#pianoInfo { text-align: center; padding: 8px; font-size: 12px; color: rgba(255,255,255,0.5); flex-shrink: 0; }
 #pianoContainer { flex: 1; display: flex; align-items: flex-end; justify-content: center; padding: 0 20px 20px; overflow-x: auto; }
 #piano { display: flex; position: relative; height: 200px; touch-action: none; --wk-w: 44px; --bk-half: 14px; }
 .white-key { width: 44px; height: 200px; background: #e8e8e8; border: 1px solid #bbb; border-radius: 0 0 6px 6px; cursor: pointer; position: relative; transition: background 0.05s; flex-shrink: 0; }
@@ -58,7 +64,7 @@ select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,
 .black-key-wrap { position: absolute; top: 0; pointer-events: none; }
 .black-key { width: 28px; height: 120px; background: #1a1a1a; border: 1px solid #000; border-radius: 0 0 4px 4px; cursor: pointer; pointer-events: auto; transition: background 0.05s; }
 .black-key:active, .black-key.active { background: #333; }
-.key-highlight { box-shadow: inset 0 0 0 2px #3b82f6; }
+.key-highlight { box-shadow: inset 0 0 0 2px var(--brand-1); }
 #pianoContainer { position: relative; }
 .note-splash { position: absolute; pointer-events: none; font-size: 18px; z-index: 5; transition: transform 0.6s ease-out, opacity 0.6s; }
 .white-key.active, .black-key.active { filter: hue-rotate(140deg) saturate(1.8); }
@@ -87,7 +93,7 @@ select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,
     <input type="file" id="fileInput" accept=".sf2,.sf3">
     <button class="btn" id="demoBtn" title="Auto-play a demo tune">▶ Demo</button>
     <button class="btn" id="surpriseBtn" title="Play a surprise riff">???</button>
-    <span id="sfName" style="font-size:12px;color:rgba(255,255,255,0.3)"></span>
+    <span id="sfName" style="font-size:12px;color:rgba(255,255,255,0.55)"></span>
     <span id="nickName" style="font-size:12px;color:rgba(103,232,249,0.7)"></span>
     <div class="volume-wrap">
       <label>Vol</label>

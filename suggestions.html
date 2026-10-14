@@ -11,12 +11,18 @@
 <meta property="og:description" content="Anonymous suggestion box — drop an idea, see what everyone else has been thinking.">
 <meta property="og:url" content="https://gaster4432.github.io/suggestions.html">
 <meta property="og:type" content="website">
-<meta property="og:image" content="https://gaster4432.github.io/favicon-v2.ico">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="https://gaster4432.github.io/images/og-banner.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="gaster4432 — projects & things">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Suggestion Box">
 <meta name="twitter:description" content="Anonymous suggestion box — drop an idea, see what everyone else has been thinking.">
-<meta name="twitter:image" content="https://gaster4432.github.io/favicon-v2.ico">
+<meta name="twitter:image" content="https://gaster4432.github.io/images/og-banner.png">
 <link rel="icon" type="image/x-icon" href="/favicon-v2.ico">
+<link rel="canonical" href="https://gaster4432.github.io/suggestions.html">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Suggestion Box","url":"https://gaster4432.github.io/suggestions.html","applicationCategory":"CommunicationApplication","operatingSystem":"Web browser","description":"Anonymous suggestion box — drop an idea, see what everyone else has been thinking.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+<link rel="stylesheet" href="/styles.css">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
@@ -46,18 +52,18 @@ a:hover { text-decoration: underline; }
   justify-content: space-between;
   margin-bottom: 24px;
 }
-.back-link { font-size: 13px; color: rgba(255,255,255,0.35); }
+.back-link { font-size: 13px; color: rgba(255,255,255,0.55); }
 h1 {
   font-size: 28px;
   font-weight: 800;
   letter-spacing: -1px;
-  background: linear-gradient(135deg, #fff 0%, #67e8f9 50%, #3b82f6 100%);
+  background: linear-gradient(135deg, #fff 0%, var(--brand-3) 50%, var(--brand-1) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   margin-bottom: 4px;
 }
-.subtitle { font-size: 14px; color: rgba(255,255,255,0.3); margin-bottom: 28px; }
+.subtitle { font-size: 14px; color: rgba(255,255,255,0.55); margin-bottom: 28px; }
 
 /* ── Add bar ── */
 .add-bar {
@@ -83,7 +89,7 @@ h1 {
   min-height: 44px;
   max-height: 160px;
 }
-.add-bar textarea::placeholder { color: rgba(255,255,255,0.25); }
+.add-bar textarea::placeholder { color: rgba(255,255,255,0.45); }
 .add-btn {
   align-self: flex-end;
   flex-shrink: 0;
@@ -95,7 +101,7 @@ h1 {
   font-weight: 600;
   cursor: pointer;
   color: #fff;
-  background: linear-gradient(135deg, #3b82f6, #14b8a6);
+  background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
   transition: opacity 0.15s;
 }
 .add-btn:hover { opacity: 0.9; }
@@ -117,20 +123,20 @@ h1 {
 .suggestion .date {
   flex-shrink: 0;
   font-size: 11px;
-  color: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.5);
   padding-top: 2px;
 }
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.empty { text-align: center; color: rgba(255,255,255,0.15); padding: 40px 0; font-size: 13px; }
-#statusMsg { font-size: 12px; color: rgba(255,255,255,0.25); text-align: center; padding-top: 12px; }
+.empty { text-align: center; color: rgba(255,255,255,0.45); padding: 40px 0; font-size: 13px; }
+#statusMsg { font-size: 12px; color: rgba(255,255,255,0.55); text-align: center; padding-top: 12px; }
 .suggestion { flex-direction: column; gap: 6px; }
 .sug-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; }
 .alias { font-size: 11px; font-weight: 600; letter-spacing: 0.4px; color: #67e8f9; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); padding: 2px 8px; border-radius: 20px; align-self: flex-start; }
 #charRow { display: flex; justify-content: flex-end; margin: -16px 4px 16px; }
-#charCount { font-size: 11px; color: rgba(255,255,255,0.25); }
+#charCount { font-size: 11px; color: rgba(255,255,255,0.55); }
 @media (max-width: 640px) {
   .container { padding: 24px 16px 40px; }
   h1 { font-size: 24px; }
@@ -148,13 +154,15 @@ h1 {
   </div>
 
   <div class="add-bar">
+    <label class="sr-only" for="input">Your suggestion</label>
     <textarea id="input" rows="1" maxlength="2000" placeholder="Type a suggestion..."></textarea>
+    <input type="text" id="hp" name="homepage" class="sr-only" tabindex="-1" autocomplete="off" aria-hidden="true">
     <button class="add-btn" id="sendBtn">Send</button>
   </div>
   <div id="charRow"><span id="charCount"></span></div>
 
   <div id="list"></div>
-  <div id="statusMsg"></div>
+  <div id="statusMsg" role="status" aria-live="polite"></div>
 </div>
 
 <script>
@@ -163,6 +171,8 @@ const listEl = document.getElementById('list');
 const inputEl = document.getElementById('input');
 const sendBtn = document.getElementById('sendBtn');
 const statusEl = document.getElementById('statusMsg');
+const hpEl = document.getElementById('hp');
+const loadedAt = Date.now();
 
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -251,8 +261,10 @@ async function load() {
 }
 
 async function send() {
-  const text = inputEl.value.trim();
+  const text = inputEl.value.trim().slice(0, 2000);
   if (!text) return;
+  if (hpEl.value) { inputEl.value = ''; autoResize(); updateCount(); return; } // honeypot filled: silently drop
+  if (Date.now() - loadedAt < 1500) { statusEl.textContent = 'hang on a sec…'; return; }
   sendBtn.disabled = true;
   statusEl.textContent = '';
   try {

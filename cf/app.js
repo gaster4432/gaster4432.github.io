@@ -493,17 +493,29 @@ function buildSendHistory(upToIdx) {
   const result = [];
   for (let i = 0; i <= upToIdx; i++) {
     const m = history[i];
+    if (m.role !== 'user' && m.role !== 'assistant') continue;
     if (m.role === 'assistant' && char.greeting && m.content === char.greeting) continue;
     const cleaned = extractThinkingBlocks(m.content).cleaned;
-    result.push({ role: m.role, content: cleaned });
+    if (!cleaned) continue;
+    result.push({ role: m.role, content: String(cleaned).slice(0, 8000) });
   }
-  return result;
+  // Cap what leaves the browser — last 40 messages / 16k chars (latency + cost guard)
+  const MAX_MSGS = 40;
+  const MAX_CHARS = 16000;
+  let totalChars = 0;
+  const capped = [];
+  for (let i = result.length - 1; i >= 0; i--) {
+    totalChars += result[i].content.length;
+    if (capped.length >= MAX_MSGS || totalChars > MAX_CHARS) break;
+    capped.unshift(result[i]);
+  }
+  return capped;
 }
 
 function makeSendBody(msg, sendHistory) {
   const char = characters[currentChar] || {};
   return {
-    message: msg,
+    message: String(msg || '').trim().slice(0, 4000),
     character: { name: char.name || 'Assistant', greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
     history: sendHistory,
   };
