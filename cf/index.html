@@ -154,8 +154,15 @@
         </div>
 
         <p id="authStatus" class="auth-status" role="status" aria-live="polite"></p>
+
+        <label class="auth-remember">
+          <input type="checkbox" id="authRemember">
+          <span>Remember me on this device</span>
+        </label>
+
         <button type="button" id="authSubmit" class="btn-primary auth-submit">Sign in</button>
         <p class="auth-note">Your password never leaves this browser. It is stretched with PBKDF2 (600k iterations) here, and only the resulting verifier is sent.</p>
+        <p class="auth-warn" id="authRememberWarn" hidden><b>Remember me</b> saves your actual password in this browser's local storage so you can be signed in automatically. Anything able to run JavaScript on this site could then read it. Leave it off to rely on your saved session instead.</p>
       </div>
 
       <!-- SIGNED-IN STATE -->

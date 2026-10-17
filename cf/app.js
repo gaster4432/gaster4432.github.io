@@ -69,6 +69,28 @@ async function fetchBudget() {
 let sessionId = loadJSON('pkax_session', '') || '';
 let me = null;
 
+// Opt-in "Remember me": the saved session normally keeps you signed in via
+// sliding refresh, so this is only used as a fallback when a session has
+// lapsed or been superseded. Opt-in because it stores the real password.
+const REMEMBER_KEY = 'pkax_remember';
+function savedCredentials() {
+  try {
+    const raw = localStorage.getItem(REMEMBER_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    return v && typeof v.username === 'string' && typeof v.password === 'string'
+      ? v : null;
+  } catch {
+    return null;
+  }
+}
+function saveCredentials(username, password) {
+  try { localStorage.setItem(REMEMBER_KEY, JSON.stringify({ username, password })); } catch {}
+}
+function clearCredentials() {
+  try { localStorage.removeItem(REMEMBER_KEY); } catch {}
+}
+
 // Staged avatar while the guest form is open, before any account exists.
 let pendingAvatar = '';
 
@@ -265,23 +287,60 @@ async function signOut() {
   me = null;
   personaReserveTokens = 0;
   localStorage.removeItem('pkax_session');
+  clearCredentials();
   closeOverlay('authModal');
   renderAuth();
 }
 
-async function restoreSession() {
-  if (!sessionId) { renderAuth(); return; }
+/**
+ * Extend the server-side session while it is still valid. Keeps the same
+ * session id, so other open tabs keep working.
+ */
+async function refreshSession() {
+  if (!sessionId || !me) return false;
+  const r = await api('/api/auth/refresh', { method: 'POST' });
+  return !!r.ok;
+}
 
-  const r = await api('/api/auth/session');
-  if (r.ok && r.data.authenticated) {
-    me = { id: r.data.userId, username: r.data.username, avatar: r.data.avatar || '' };
-    // The server injects this persona into every system prompt, so the client
-    // must reserve tokens for it or history could overflow the window.
-    personaReserveTokens = Math.ceil((r.data.personaChars || 0) / budget.charsPerToken);
-  } else {
+/**
+ * Called on boot. Order of preference:
+ *   1. an existing session id that the worker still accepts (the normal case)
+ *   2. if that is gone and the user opted into "Remember me", sign in again
+ *      with the stored password and adopt the fresh session id.
+ */
+async function restoreSession() {
+  if (sessionId) {
+    const r = await api('/api/auth/session');
+    if (r.ok && r.data.authenticated) {
+      me = { id: r.data.userId, username: r.data.username, avatar: r.data.avatar || '' };
+      personaReserveTokens = Math.ceil((r.data.personaChars || 0) / budget.charsPerToken);
+      renderAuth();
+      refreshSession();
+      return;
+    }
     sessionId = '';
     localStorage.removeItem('pkax_session');
   }
+
+  // No usable session — fall back to the stored password if the user opted in.
+  const creds = savedCredentials();
+  if (creds && creds.password) {
+    const verifier = await Passwords.derive(creds.username, creds.password);
+    const r = await api('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username: creds.username, verifier }),
+    });
+    if (r.ok && r.data.sessionId) {
+      sessionId = r.data.sessionId;
+      me = { id: r.data.userId, username: r.data.username, avatar: r.data.avatar || '' };
+      localStorage.setItem('pkax_session', sessionId);
+      renderAuth();
+      return;
+    }
+    // Stored password no longer works — stop retrying on every page load.
+    clearCredentials();
+  }
+
   renderAuth();
 }
 
@@ -298,6 +357,10 @@ function openAccountModal() {
   if (guest) {
     pendingAvatar = $('avatarUrl').value.trim();
     paintAvatar($('avatarPreview'), $('authUsername').value.trim() || 'Guest', pendingAvatar);
+    // Default to remembering only if credentials are already stored, so the
+    // box never silently starts collecting a new password.
+    $('authRemember').checked = !!savedCredentials();
+    syncRememberWarning();
     $('authUsername').focus();
   } else {
     $('meName').textContent = me.username;
@@ -320,6 +383,12 @@ function resetAuthConfirm() {
   setAuthStatus('');
 }
 
+function syncRememberWarning() {
+  const warn = $('authRememberWarn');
+  const box = $('authRemember');
+  if (warn && box) warn.hidden = !box.checked;
+}
+
 async function doSignIn() {
   const username = $('authUsername').value.trim();
   const password = $('authPassword').value;
@@ -340,6 +409,9 @@ async function doSignIn() {
     return setAuthStatus('No account with that username.');
   }
   if (!r.ok) return setAuthStatus(authMessage(r.data, 'Sign in failed.'));
+
+  if ($('authRemember').checked) saveCredentials(username, password);
+  else clearCredentials();
 
   adoptSession(r.data);
   await restoreSession();
@@ -369,6 +441,8 @@ async function doRegister() {
     body: JSON.stringify({ username, verifier, sec: intent.data.sec, avatar }),
   });
   if (!r.ok) return setAuthStatus(authMessage(r.data, 'Registration failed.'));
+
+  if ($('authRemember').checked) saveCredentials(username, password);
 
   adoptSession(r.data);
   await restoreSession();
@@ -518,6 +592,7 @@ function bindAuthUI() {
   $('authSubmit').onclick = doSignIn;
   $('authYes').onclick = doRegister;
   $('authNo').onclick = resetAuthConfirm;
+  if ($('authRemember')) $('authRemember').onchange = syncRememberWarning;
   // Native form submit covers Enter in either field, and gives password
   // managers a real form to attach to.
   $('authForm').addEventListener('submit', (e) => {

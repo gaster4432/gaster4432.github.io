@@ -432,6 +432,28 @@ async function handleLogout(request, env, json, user) {
   return json({ ok: true });
 }
 
+/**
+ * Sliding session renewal.
+ *
+ * The session id is stable for its whole life — only the expiry moves. That
+ * matters because the client (and the KV cache) key off the token, so a
+ * rotating id would invalidate every in-flight tab.
+ *
+ * Only ever called with an already-valid session, so it cannot be used to
+ * extend a session that has lapsed.
+ */
+async function handleRefresh(request, env, json, user) {
+  const expiresAt = new Date(Date.now() + SESSION_TTL_SEC * 1000).toISOString();
+
+  await env.AUTH_DB.prepare(
+    "UPDATE users SET session_expires_at = ?1 WHERE id = ?2 AND session_id IS NOT NULL"
+  )
+    .bind(expiresAt, user.id)
+    .run();
+
+  return json({ ok: true, expiresAt });
+}
+
 async function handleSessionStatus(request, env, json, user) {
   if (!user) return json({ authenticated: false });
 
@@ -527,6 +549,7 @@ export {
   handleRegister,
   handleLogin,
   handleLogout,
+  handleRefresh,
   handleSessionStatus,
   handleProfileUpdate,
   sanitizeAvatar,

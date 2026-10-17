@@ -5,6 +5,7 @@ import {
   handleLogout,
   handlePersona,
   handleProfileUpdate,
+  handleRefresh,
   handleRegister,
   handleRegisterIntent,
   handleSessionStatus,
@@ -43,6 +44,14 @@ const DENSE_RE =
 
 const MAX_SYSTEM_CHARS = 16000;
 const MAX_MESSAGE_CHARS = 32000;
+
+/* Reasoning adds ~4-8s of latency before the first token, because the
+ * hidden thinking phase emits nothing the browser can render. Flip this to
+ * true for hard questions. GLM-4.7-Flash exposes it as
+ * chat_template_kwargs.enable_thinking (there is no reasoning_effort on
+ * this model — that field belongs to GLM-5.2).
+ */
+const ENABLE_THINKING = false;
 
 function estimateTokens(text) {
   if (typeof text !== "string" || text.length === 0) return 0;
@@ -292,6 +301,10 @@ const greeting =
       messages,
       stream: true,
       max_tokens: MAX_OUTPUT_TOKENS,
+      chat_template_kwargs: {
+        enable_thinking: ENABLE_THINKING,
+        clear_thinking: false,
+      },
     });
   } catch (error) {
     console.error("[chat] Workers AI request failed:", error);
@@ -469,6 +482,7 @@ export default {
             vision: false,
             streaming: true,
             functionCalling: true,
+            reasoning: ENABLE_THINKING,
             contextWindow: CONTEXT_WINDOW,
             maxOutputTokens: MAX_OUTPUT_TOKENS,
           },
@@ -519,6 +533,11 @@ export default {
         const user = await resolveSession(env, request);
         if (!user) return json({ error: "auth_required" }, 401);
         return handleProfileUpdate(request, env, json, user);
+      }
+      if (action === "refresh" && request.method === "POST") {
+        const user = await resolveSession(env, request);
+        if (!user) return json({ error: "auth_required" }, 401);
+        return handleRefresh(request, env, json, user);
       }
       if (action === "logout" && request.method === "POST") {
         const user = await resolveSession(env, request);
