@@ -17,8 +17,11 @@
   --sp-radius: 16px;
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* The cf app loads only this stylesheet (not /styles.css), so it has to
+   carry its own reset. Without margin:0 the UA default 8px body margin
+   pushed the bottom-anchored sidebar content past the viewport. */
 html, body {
   min-height: 100%;
   background: var(--sp-bg);
@@ -111,6 +114,7 @@ body {
 
 .char-sidebar-list {
   flex: 1;
+  min-height: 0;   /* let it shrink so the profile card is never pushed off-screen */
   overflow-y: auto;
   padding: 4px 10px 10px;
 }
@@ -174,6 +178,288 @@ body {
 }
 
 .btn-sidebar-action:hover { background: rgba(255, 255, 255, 0.09); color: #fff; }
+.btn-sidebar-action:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Profile card (sidebar, under New Chat / History) ── */
+.profile-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--sp-line);
+  color: var(--sp-text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.profile-card:hover { background: rgba(255, 255, 255, 0.05); }
+.profile-card:hover .profile-caret { color: #fff; }
+
+.profile-avatar {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid var(--sp-line);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.profile-avatar-lg { width: 52px; height: 52px; min-width: 52px; }
+
+.profile-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.profile-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profile-sub {
+  font-size: 11px;
+  color: var(--sp-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profile-caret { color: var(--sp-faint); flex-shrink: 0; }
+
+/* ── Modal shell ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.modal {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  background: var(--sp-panel);
+  border: 1px solid var(--sp-line);
+  border-radius: var(--sp-radius);
+  padding: 26px 24px 24px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: modalIn 0.18s ease;
+}
+.modal-lg { max-width: 620px; }
+
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--sp-dim);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.modal-close:hover { color: #fff; background: rgba(255, 255, 255, 0.07); }
+
+.modal-head { padding-right: 32px; }
+.modal-head h2 { font-size: 18px; font-weight: 700; letter-spacing: -0.2px; }
+.modal-head-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-right: 32px;
+}
+.modal-sub { font-size: 12.5px; color: var(--sp-faint); margin-top: 5px; line-height: 1.5; }
+
+/* ── Fields ── */
+.auth-row { display: flex; flex-direction: column; gap: 6px; }
+.auth-row > span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--sp-faint);
+}
+.auth-row-stack { flex: 1; min-height: 0; }
+
+.auth-row input,
+.auth-textarea {
+  width: 100%;
+  padding: 10px 13px;
+  border-radius: 10px;
+  border: 1px solid var(--sp-line);
+  background: var(--sp-panel-2);
+  color: var(--sp-text);
+  font-family: inherit;
+  font-size: 13.5px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.auth-row input:focus,
+.auth-textarea:focus { border-color: var(--sp-accent); }
+.auth-textarea {
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.field-hint { font-size: 11.5px; color: var(--sp-faint); line-height: 1.5; }
+
+/* ── Avatar picker ── */
+.avatar-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--sp-panel-2);
+  border: 1px solid var(--sp-line);
+  border-radius: 12px;
+}
+.avatar-picker .auth-row > span { font-size: 10.5px; }
+
+.avatar-preview {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+  background-color: #222228;
+  border: 1px solid var(--sp-line);
+}
+
+.avatar-picker-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* <details> variant used inside the signed-in view */
+details.avatar-picker > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sp-dim);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px;
+}
+details.avatar-picker > summary::-webkit-details-marker { display: none; }
+details.avatar-picker > summary::before {
+  content: "▸";
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+details.avatar-picker[open] > summary::before { transform: rotate(90deg); }
+details.avatar-picker > summary:hover { color: #fff; }
+.avatar-edit-body { display: flex; flex-direction: column; gap: 10px; }
+
+/* ── Buttons ── */
+.btn-primary,
+.btn-ghost {
+  border: none;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 11px 18px;
+  transition: filter 0.15s, background 0.15s;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--sp-accent), var(--sp-accent-2));
+  color: #fff;
+}
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--sp-line);
+  color: var(--sp-dim);
+}
+.btn-ghost:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+
+.btn-sm { padding: 8px 14px; font-size: 12.5px; border-radius: 9px; }
+.auth-submit { width: 100%; }
+
+/* file input wrapped in a label styled as a button */
+label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
+
+/* ── Large action rows (signed-in view) ── */
+.modal-actions { display: flex; flex-direction: column; gap: 8px; }
+
+.modal-action {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 13px 15px;
+  background: var(--sp-panel-2);
+  border: 1px solid var(--sp-line);
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+.modal-action:hover {
+  border-color: rgba(255, 92, 122, 0.45);
+  background: rgba(255, 92, 122, 0.07);
+}
+.modal-action-title { font-size: 13.5px; font-weight: 700; color: var(--sp-text); }
+.modal-action-sub { font-size: 11.5px; color: var(--sp-faint); line-height: 1.4; }
+
+/* ── Confirm block + status ── */
+.auth-confirm {
+  padding: 13px 15px;
+  border: 1px solid rgba(255, 92, 122, 0.32);
+  background: rgba(255, 92, 122, 0.08);
+  border-radius: 12px;
+}
+.auth-confirm p { font-size: 13.5px; line-height: 1.5; margin-bottom: 10px; }
+.auth-confirm b { color: var(--sp-accent); }
+
+.auth-confirm-row {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.auth-status {
+  font-size: 12.5px;
+  color: var(--sp-dim);
+  min-height: 1.1em;
+  line-height: 1.5;
+}
+.auth-note { font-size: 11px; color: var(--sp-faint); line-height: 1.55; }
 
 /* ── Main column ── */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; background: var(--sp-bg); }
@@ -524,14 +810,21 @@ body {
   .sidebar .sidebar-section-label,
   .sidebar .sidebar-header,
   .sidebar .sp-nav,
+  .profile-meta,
+  .profile-caret,
   .btn-sidebar-action span { display: none; }
   .sidebar .sidebar-char { justify-content: center; }
   .sidebar .sidebar-footer { flex-direction: column; }
+  /* Collapse the profile card down to just the avatar */
+  .profile-card { justify-content: center; padding: 10px 6px; }
+  .profile-avatar { width: 34px; height: 34px; min-width: 34px; }
   .chat-header { padding: 10px 12px; }
   .messages { padding: 12px; }
   .msg { max-width: 88%; }
   .chat-char-greeting { max-width: 38vw; }
   .char-grid { grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); }
+  .field-grid { grid-template-columns: 1fr; }
+  .modal { padding: 22px 18px 20px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

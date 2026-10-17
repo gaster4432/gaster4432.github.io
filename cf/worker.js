@@ -1,5 +1,80 @@
+import {
+  buildSystemPrompt,
+  handleCreateCharacter,
+  handleLogin,
+  handleLogout,
+  handlePersona,
+  handleProfileUpdate,
+  handleRegister,
+  handleRegisterIntent,
+  handleSessionStatus,
+  loadPersona,
+  rateLimit,
+  anonKey,
+  resolveSession,
+} from "./auth.js";
+
 const MODEL = "@cf/zai-org/glm-4.7-flash";
-const HISTORY_LIMIT = 9999999999999;
+
+/* ─── Context budget ───
+ * CONTEXT_WINDOW is the docs-verified limit for @cf/zai-org/glm-4.7-flash.
+ * This endpoint previously advertised 262144, which is 2x the real window.
+ * Budget = window - output reserve - chat-template overhead - system prompt.
+ */
+const CONTEXT_WINDOW = 131072;
+const MAX_OUTPUT_TOKENS = 8192;   // sent explicitly so the reserve is real
+const TEMPLATE_OVERHEAD = 1024;   // GLM chat template + role markers
+const SYSTEM_RESERVE = 8192;      // ceiling for system prompt + greeting
+const PER_MESSAGE_OVERHEAD = 4;   // role marker + delimiters
+
+/* Estimator constants. Deliberately pessimistic so estimate >= actual for any
+ * input, which makes the budget a hard guarantee rather than a guess. GLM's
+ * tokenizer is not public, so exact counting is not possible here.
+ */
+const CHARS_PER_TOKEN = 3.5;
+const CJK_TOKENS_PER_CHAR = 2;
+
+/* Ranges where a single character can cost ~1-2 tokens. Astral-plane ranges
+ * need the /u flag and match one full codepoint, while String.length counts
+ * them as 2 units — that skews the remainder upward, which is the safe side.
+ */
+const DENSE_RE =
+  /[\u1100-\u11FF\u2E80-\uA4CF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]|[\u{20000}-\u{3FFFF}]/gu;
+
+const MAX_SYSTEM_CHARS = 16000;
+const MAX_MESSAGE_CHARS = 32000;
+
+function estimateTokens(text) {
+  if (typeof text !== "string" || text.length === 0) return 0;
+  const dense = text.match(DENSE_RE);
+  const d = dense ? dense.length : 0;
+  return Math.ceil((text.length - d) / CHARS_PER_TOKEN) + d * CJK_TOKENS_PER_CHAR;
+}
+
+function messageTokens(content) {
+  return estimateTokens(content) + PER_MESSAGE_OVERHEAD;
+}
+
+/** Tokens available for history, after system prompt + output reserve. */
+function historyBudgetFor(systemText, greetingText) {
+  const used =
+    messageTokens(systemText) +
+    (greetingText ? messageTokens(greetingText) : 0);
+  return CONTEXT_WINDOW - MAX_OUTPUT_TOKENS - TEMPLATE_OVERHEAD - Math.min(SYSTEM_RESERVE, used);
+}
+
+/**
+ * Tokens left for history AND the incoming message, once system + greeting
+ * are paid for. The message must be budgeted alongside history — reserving
+ * only for history lets a max-length message push the request over the window.
+ */
+function conversationRoomFor(systemText, greetingText) {
+  const used =
+    messageTokens(systemText) +
+    (greetingText ? messageTokens(greetingText) : 0);
+  return Math.max(0, CONTEXT_WINDOW - MAX_OUTPUT_TOKENS - TEMPLATE_OVERHEAD
+    - Math.min(SYSTEM_RESERVE, used));
+}
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -35,11 +110,10 @@ function emit(controller, encoder, data) {
   );
 }
 
-function buildHistory(raw) {
+function buildHistory(raw, budgetTokens) {
   if (!Array.isArray(raw)) return [];
 
-  return raw
-    .slice(-HISTORY_LIMIT)
+  const clean = raw
     .filter(
       (item) =>
         item &&
@@ -49,17 +123,50 @@ function buildHistory(raw) {
         item.content.length > 0
     )
     .map(({ role, content }) => ({ role, content }));
+
+  // Keep the newest contiguous run that fits. Walking backwards preserves
+  // conversational coherence; dropping arbitrary turns would leave orphaned
+  // replies with no question attached.
+  const kept = [];
+  let used = 0;
+
+  for (let i = clean.length - 1; i >= 0; i--) {
+    const cost = messageTokens(clean[i].content);
+    if (used + cost > budgetTokens) break;
+    kept.unshift(clean[i]);
+    used += cost;
+  }
+
+  // One message can be larger than the entire budget on its own. Rather than
+  // dropping the turn (losing the question entirely) slice its content.
+  if (kept.length === 0 && clean.length > 0) {
+    const last = clean[clean.length - 1];
+    const room = Math.max(0, budgetTokens - PER_MESSAGE_OVERHEAD);
+    const maxChars = Math.floor(room / CHARS_PER_TOKEN);
+    const clipped = last.content.slice(0, maxChars);
+    kept.push({
+      role: last.role,
+      content: clipped.length < last.content.length ? `${clipped}\n…[truncated]` : clipped,
+    });
+  }
+
+  return kept;
 }
 
 function systemPromptFor(character) {
-  return typeof character.systemPrompt === "string" &&
-    character.systemPrompt.trim()
-    ? character.systemPrompt.trim()
-    : `You are ${
-        typeof character.name === "string"
-          ? character.name.trim()
-          : "a helpful assistant"
-      }.`;
+  const fallback = `You are ${
+    typeof character.name === "string"
+      ? character.name.trim()
+      : "a helpful assistant"
+  }.`;
+
+  const raw =
+    typeof character.systemPrompt === "string" && character.systemPrompt.trim()
+      ? character.systemPrompt.trim()
+      : fallback;
+
+  // A 200KB system prompt must not be able to blow the context window.
+  return raw.length > MAX_SYSTEM_CHARS ? raw.slice(0, MAX_SYSTEM_CHARS) : raw;
 }
 
 async function handleCharacters(request, env) {
@@ -78,7 +185,7 @@ async function handleCharacters(request, env) {
 
   try {
     const result = await env.DB.prepare(`
-      SELECT id, name, greeting, systemPrompt, avatar, created_at
+      SELECT id, name, greeting, systemPrompt, avatar, created_at, owner_id
       FROM characters
       ORDER BY created_at ASC
     `).all();
@@ -90,7 +197,8 @@ async function handleCharacters(request, env) {
   }
 }
 
-async function handleChat(request, env) {
+async function handleChat(request, env, context = {}) {
+  const { user = null } = context;
   let body;
 
   try {
@@ -134,17 +242,29 @@ async function handleChat(request, env) {
     );
   }
 
-  const messages = [
-    {
-      role: "system",
-      content: systemPromptFor(character),
-    },
-  ];
+  // Persona is loaded server-side from the session, never read from the
+// request body — a user cannot spoof another account's persona or push it
+// past MAX_PERSONA_CHARS.
+const personaText = user ? await loadPersona(env, user.id) : "";
 
-  const greeting =
+let system = buildSystemPrompt(systemPromptFor(character), personaText);
+if (system.length > MAX_SYSTEM_CHARS) system = system.slice(0, MAX_SYSTEM_CHARS);
+
+const greeting =
     typeof character.greeting === "string"
       ? character.greeting.trim()
       : "";
+
+  // Budget the incoming message together with history. MAX_MESSAGE_CHARS is
+  // the hard cap, but a very large system prompt leaves less room, so the
+  // message is also clamped to whatever actually fits.
+  const room = conversationRoomFor(system, greeting);
+  const messageRoom = Math.floor(
+    Math.max(0, room - PER_MESSAGE_OVERHEAD) / CHARS_PER_TOKEN
+  );
+  const userContent = message.slice(0, Math.min(MAX_MESSAGE_CHARS, messageRoom));
+
+  const messages = [{ role: "system", content: system }];
 
   if (greeting) {
     messages.push({
@@ -153,11 +273,15 @@ async function handleChat(request, env) {
     });
   }
 
-  messages.push(...buildHistory(history));
+  // The persona is already folded into `system`, so history gets whatever
+  // the message did not use.
+  messages.push(
+    ...buildHistory(history, Math.max(0, room - messageTokens(userContent)))
+  );
 
   messages.push({
     role: "user",
-    content: message,
+    content: userContent,
   });
 
   // Workers AI accepts a stream of model-generated events.
@@ -167,6 +291,7 @@ async function handleChat(request, env) {
     aiStream = await env.AI.run(selectedModel, {
       messages,
       stream: true,
+      max_tokens: MAX_OUTPUT_TOKENS,
     });
   } catch (error) {
     console.error("[chat] Workers AI request failed:", error);
@@ -201,7 +326,6 @@ async function handleChat(request, env) {
     async start(controller) {
       const reader = aiStream.getReader();
       let buffer = "";
-      let completed = false;
 
       function sendError(message, code = "upstream_error") {
         emit(controller, encoder, {
@@ -221,10 +345,7 @@ async function handleChat(request, env) {
 
         const data = dataLines.join("\n");
 
-        if (!data || data === "[DONE]") {
-          completed = true;
-          return;
-        }
+        if (!data || data === "[DONE]") return;
 
         let event;
 
@@ -253,7 +374,6 @@ async function handleChat(request, env) {
               : event.error.message ?? "Workers AI stream error";
 
           sendError(message);
-          completed = true;
         }
       }
 
@@ -344,25 +464,94 @@ export default {
         models: [MODEL],
         capabilities: {
           [MODEL]: {
-            vision: true,
+            // GLM-4.7-Flash is text-only. GLM-5.3-Flash is the first
+            // GLM-family model on Workers AI with vision.
+            vision: false,
             streaming: true,
             functionCalling: true,
-            contextWindow: 262144,
+            contextWindow: CONTEXT_WINDOW,
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
           },
         },
         provider: "cloudflare-workers-ai",
+        // Single source of truth for the client's budgeting so the two
+        // implementations cannot drift apart.
+        budget: {
+          contextWindow: CONTEXT_WINDOW,
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          templateOverhead: TEMPLATE_OVERHEAD,
+          systemReserve: SYSTEM_RESERVE,
+          perMessageOverhead: PER_MESSAGE_OVERHEAD,
+          charsPerToken: CHARS_PER_TOKEN,
+          cjkTokensPerChar: CJK_TOKENS_PER_CHAR,
+          maxSystemChars: MAX_SYSTEM_CHARS,
+          maxMessageChars: MAX_MESSAGE_CHARS,
+        },
       });
     }
 
-    if (url.pathname.startsWith("/api/characters")) {
+    if (url.pathname === "/api/characters") {
+      if (request.method === "POST") {
+        const user = await resolveSession(env, request);
+        if (!user) return json({ error: "auth_required" }, 401);
+        return handleCreateCharacter(request, env, json, user);
+      }
       return handleCharacters(request, env);
+    }
+
+    if (url.pathname.startsWith("/api/auth/")) {
+      const action = url.pathname.slice("/api/auth/".length);
+
+      if (action === "login" && request.method === "POST") {
+        return handleLogin(request, env, json);
+      }
+      if (action === "register-intent" && request.method === "POST") {
+        return handleRegisterIntent(request, env, json);
+      }
+      if (action === "register" && request.method === "POST") {
+        return handleRegister(request, env, json);
+      }
+      if (action === "session" && request.method === "GET") {
+        const user = await resolveSession(env, request);
+        return handleSessionStatus(request, env, json, user);
+      }
+      if (action === "profile" && request.method === "PUT") {
+        const user = await resolveSession(env, request);
+        if (!user) return json({ error: "auth_required" }, 401);
+        return handleProfileUpdate(request, env, json, user);
+      }
+      if (action === "logout" && request.method === "POST") {
+        const user = await resolveSession(env, request);
+        if (!user) return json({ ok: true });
+        return handleLogout(request, env, json, user);
+      }
+
+      return json({ error: "Not found" }, 404);
+    }
+
+    if (url.pathname === "/api/persona") {
+      const user = await resolveSession(env, request);
+      if (!user) return json({ error: "auth_required" }, 401);
+      return handlePersona(request, env, json, user);
     }
 
     if (
       url.pathname === "/api/chat" &&
       request.method === "POST"
     ) {
-      return handleChat(request, env);
+      // Chat stays open to everyone. Anonymous callers are metered;
+      // signed-in accounts skip the check entirely.
+      const user = await resolveSession(env, request);
+      if (!user) {
+        const rl = await rateLimit(env, await anonKey(request, "chat"), 60, 10);
+        if (!rl.ok) {
+          return json(
+            { error: "rate_limited", retryAfter: rl.resetIn },
+            429
+          );
+        }
+      }
+      return handleChat(request, env, { user });
     }
 
     return json({ error: "Not found" }, 404);

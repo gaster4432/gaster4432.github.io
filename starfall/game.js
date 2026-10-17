@@ -151,7 +151,7 @@ window.addEventListener('resize', resize); resize();
 
 /* ---------------- input ---------------- */
 const keys = {};
-const mouse = { x: W / 2, y: H / 2, down: false, rdown: false };
+const mouse = { x: W / 2, y: H / 2, down: false };
 window.addEventListener('keydown', e => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   keys[e.code] = true;
@@ -366,15 +366,14 @@ function buildPowerSprites() {
 const G = {
   state: 'menu', time: 0, wave: 1, waveT: 0, kills: 0, score: 0,
   combo: 0, comboT: 0, bestCombo: 0, shake: 0, hitstop: 0, flashA: 0,
-  endless: false, won: false, slowmo: 0, weeee: false, zoom: 1,
+  endless: false, won: false, weeee: false, zoom: 1,
   rerolls: 1, pendingLevels: 0, boss: null, spawnT: 0, diffM: DIFFS[1],
 };
 let player = null;
-let enemies = [], pBullets = [], eBullets = [], gems = [], pickups = [], parts = [], floaters = [], bolts = [], floatStars = [];
+let enemies = [], pBullets = [], eBullets = [], gems = [], pickups = [], parts = [], floaters = [], bolts = [];
 let powerups = [];
 let stars = [];
 let cam = { x: 0, y: 0 };
-let bossWarnT = 0;
 
 function makeStars() {
   stars = [];
@@ -391,7 +390,7 @@ function newPlayer() {
     dashCd: 0, dashCdMax: 2.2, dashT: 0, dashDx: 1, dashDy: 0, invuln: 0,
     fx: { overdrive: 0, splitfire: 0, rampage: 0, titan: 0, aegis: 0, frost: 0 },
     items: [],
-    bombs: 1, maxBombs: 3, fireHeld: false,
+    bombs: 1, maxBombs: 3,
     weapons: { blaster: 1 },
     wcd: { blaster: 0, spread: 0, railgun: 0, missiles: 0, tesla: 0 },
     alive: true,
@@ -995,9 +994,9 @@ function update(dt) {
   G.waveT += dt;
   const WAVE_LEN = 30;
   if (G.waveT >= WAVE_LEN) {
-    G.waveT -= dt; G.waveT = 0; G.wave++;
-    if (!G.endless && BOSS_DEFS[G.wave]) { bossWarnT = 2; }
-    else {
+    G.waveT = 0; G.wave++;
+    // Boss waves announce themselves in spawnBoss() instead
+    if (G.endless || !BOSS_DEFS[G.wave]) {
       announce('WAVE ' + G.wave, '#35e0ff');
       const WAVE_QUIPS = ['They just keep coming. Rude.', 'Wave cleared-ish. More friends inbound!', 'The void sends its regards.', 'Hydrate, Pilot. Then shoot.', 'Certified swarm moment.', 'Your insurance does not cover this.'];
       toast(WAVE_QUIPS[G.wave % WAVE_QUIPS.length]);
@@ -1039,7 +1038,6 @@ function update(dt) {
   cam.x = lerp(cam.x, player.x, 1 - Math.pow(0.0001, dt));
   cam.y = lerp(cam.y, player.y, 1 - Math.pow(0.0001, dt));
   G.shake = Math.max(0, G.shake - dt * 2.2);
-  if (bossWarnT > 0) bossWarnT -= dt;
 
   updateHUD();
 }
@@ -1048,12 +1046,10 @@ function updatePlayer(dt) {
   const p = player;
   if (!p.alive) return;
   const titanOn = p.fx.titan > 0;
-  // aim
-  if (touch.active && touch.firing) {
+  // aim: right stick wins while it is being held, otherwise mouse
+  if (touch.active && (touch.firing || touch.ax || touch.ay)) {
     p.aim = Math.atan2(touch.ay, touch.ax);
-  } else if (!(touch.active && (touch.ax || touch.ay)) || true) {
-    const sx = p.x - cam.x + W / 2, sy = p.y - cam.y + H / 2;
-    // mouse screen pos -> world dir
+  } else {
     const wx = cam.x + (mouse.x - W / 2) / G.zoom, wy = cam.y + (mouse.y - H / 2) / G.zoom;
     p.aim = Math.atan2(wy - p.y, wx - p.x);
   }
@@ -1075,7 +1071,6 @@ function updatePlayer(dt) {
   } else {
     const acc = 2600;
     p.vx += dx * acc * dt; p.vy += dy * acc * dt;
-    const fr = Math.pow(0.0001, dt); // friction-ish
     // cap speed
     const sp = Math.hypot(p.vx, p.vy), max = p.speed * (m > 0.1 ? 1 : 0.3);
     if (sp > max && max > 0) { p.vx = p.vx / sp * lerp(sp, max, 1 - Math.pow(0.001, dt)); p.vy = p.vy / sp * lerp(sp, max, 1 - Math.pow(0.001, dt)); }
@@ -1228,10 +1223,7 @@ function updateEnemies(dt) {
         break;
     }
   }
-  // remove dead + far cleanup
-  if (enemies.length > 7000) enemies = enemies.filter(e => !e.dead);
-  else if (enemies.some(e => e.dead)) enemies = enemies.filter(e => !e.dead);
-  // cull ultra-far non-boss
+  // cull ultra-far non-boss, then drop everything dead in one pass
   for (const e of enemies) {
     if (!e.boss && Math.hypot(e.x - p.x, e.y - p.y) > 4000) { e.dead = true; }
   }
@@ -1374,9 +1366,7 @@ function updateFx(dt) {
 }
 
 /* ---------------- HUD ---------------- */
-let hudT = 0;
 function updateHUD() {
-  hudT -= 1;
   // hp
   const hpp = clamp(player.hp / player.maxHp, 0, 1);
   $('hp-fill').style.width = (hpp * 100) + '%';
@@ -1390,10 +1380,8 @@ function updateHUD() {
   $('kills-num').textContent = G.kills.toLocaleString() + ' KILLS';
   $('level-badge').textContent = 'LV ' + player.level;
   $('xp-fill').style.width = clamp(player.xp / player.xpNext * 100, 0, 100) + '%';
-  // dash
+  // dash — the gradient is the real driver; #dash-fill has no child element
   const dp = 1 - clamp(player.dashCd / player.dashCdMax, 0, 1);
-  $('dash-fill').style.setProperty('--p', dp);
-  $('dash-fill').firstElementChild; // noop
   $('dash-wrap').classList.toggle('ready', player.dashCd <= 0);
   document.querySelector('#dash-fill').style.background =
     `linear-gradient(90deg, #35e0ff ${dp * 100}%, rgba(53,224,255,.1) ${dp * 100}%)`;
@@ -1496,7 +1484,6 @@ function render() {
     const y = k.y + Math.sin(k.bob) * 4;
     ctx.font = '22px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(k.kind === 'heart' ? '❤️' : k.kind === 'bomb' ? '💣' : '🧲', k.x, y);
-    if (k.life < 4) { ctx.globalAlpha = (Math.sin(k.life * 12) + 1) / 2; ctx.globalAlpha = 1; }
   }
   // power-ups (custom sprites + halo ring)
   for (const u of powerups) {
@@ -1762,14 +1749,11 @@ function drawEnemy(e) {
 }
 
 /* ---------------- main loop ---------------- */
-let last = performance.now(), fpsAcc = 0, fpsN = 0, fpsT = 0;
+let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - last) / 1000; last = now;
   if (dt > 0.05) dt = 0.05;
-  // fps
-  fpsAcc += 1 / Math.max(dt, 1e-4); fpsN++; fpsT += dt;
-  if (fpsT > 0.5) { /*$('fps').textContent = Math.round(fpsAcc / fpsN);*/ fpsAcc = 0; fpsN = 0; fpsT = 0; }
 
   if (G.state === 'playing') {
     if (G.hitstop > 0) { G.hitstop -= dt; }
@@ -1778,7 +1762,7 @@ function frame(now) {
     updateFx(dt); // let particles settle behind panels
     G.time += dt * 0.05;
   }
-  if (G.state !== 'menu' || true) render();
+  render();
 }
 
 /* ---------------- wiring ---------------- */
@@ -1852,8 +1836,6 @@ function readSettingsUI() {
 syncSettingsUI(); refreshMenuStats(); bindUI();
 buildPowerSprites(); buildPowerLegend();
 player = newPlayer(); // for menu backdrop
-// ambient menu drift: a few wanderers for vibe
-for (let i = 0; i  < 12; i++) { const p = { x: rand(-600, 600), y: rand(-400, 400) }; }
 showScreen('menu');
 requestAnimationFrame(frame);
 // idle menu background sim
