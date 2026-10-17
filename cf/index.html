@@ -47,6 +47,14 @@
           History
         </button>
       </div>
+      <button type="button" class="profile-card" id="profileCard" aria-haspopup="dialog">
+        <span class="profile-avatar" id="profileAvatar" aria-hidden="true"></span>
+        <span class="profile-meta">
+          <span class="profile-name" id="profileName">Guest</span>
+          <span class="profile-sub" id="profileSub">Sign in to save personas</span>
+        </span>
+        <svg class="profile-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
     </aside>
 
     <main class="main">
@@ -70,7 +78,7 @@
         </div>
 
         <div class="messages" id="messages">
-          <div class="empty-state" id="emptyState">
+          <div class="empty-state">
             <div class="empty-icon">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
             </div>
@@ -98,9 +106,166 @@
 
     </main>
   </div>
+<!-- ACCOUNT: sign in / register (guest) or profile (signed in) -->
+  <div id="authModal" class="modal-overlay hidden">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+      <button type="button" class="modal-close" id="closeAuthBtn" aria-label="Close">&times;</button>
+
+      <!-- GUEST STATE -->
+      <div id="authGuestView">
+        <div class="modal-head">
+          <h2 id="authModalTitle">Welcome to PKAX</h2>
+          <p class="modal-sub" id="authModalSub">Sign in, or create an account to build characters and set a persona.</p>
+        </div>
+
+        <div class="avatar-picker">
+          <div class="avatar-preview" id="avatarPreview"></div>
+          <div class="avatar-picker-actions">
+            <label class="btn-ghost btn-sm" for="avatarFile">
+              Upload image
+              <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+            </label>
+            <button type="button" class="btn-ghost btn-sm" id="avatarReset">Use generated</button>
+          </div>
+          <label class="auth-row">
+            <span>Image URL</span>
+            <input id="avatarUrl" type="url" maxlength="2000" placeholder="https://… (optional)" spellcheck="false">
+          </label>
+          <p class="field-hint">Uploads are shrunk to 256×256 in your browser. Leave both blank for a generated avatar.</p>
+        </div>
+
+        <form id="authForm" autocomplete="on">
+          <label class="auth-row">
+            <span>Username</span>
+            <input id="authUsername" type="text" autocomplete="username" maxlength="32" spellcheck="false" placeholder="3–32 characters: letters, numbers, - or _">
+          </label>
+          <label class="auth-row">
+            <span>Password</span>
+            <input id="authPassword" type="password" autocomplete="current-password" maxlength="256" placeholder="at least 8 characters">
+          </label>
+        </form>
+
+        <div id="authConfirm" class="auth-confirm hidden">
+          <p>No account called <b id="authMissingName"></b>. Would you like to create one?</p>
+          <div class="auth-confirm-row">
+            <button type="button" id="authYes" class="btn-primary btn-sm">Yes, create it</button>
+            <button type="button" id="authNo" class="btn-ghost btn-sm">No</button>
+          </div>
+        </div>
+
+        <p id="authStatus" class="auth-status" role="status" aria-live="polite"></p>
+        <button type="button" id="authSubmit" class="btn-primary auth-submit">Sign in</button>
+        <p class="auth-note">Your password never leaves this browser. It is stretched with PBKDF2 (600k iterations) here, and only the resulting verifier is sent.</p>
+      </div>
+
+      <!-- SIGNED-IN STATE -->
+      <div id="authMeView" class="hidden">
+        <div class="modal-head modal-head-row">
+          <div class="profile-avatar profile-avatar-lg" id="meAvatar" aria-hidden="true"></div>
+          <div>
+            <h2 id="meName">Username</h2>
+            <p class="modal-sub">Signed in</p>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="modal-action" id="openPersonaBtn">
+            <span class="modal-action-title">Your Persona</span>
+            <span class="modal-action-sub" id="personaSummary">Not set — characters get no extra context</span>
+          </button>
+          <button type="button" class="modal-action" id="openCharBtn">
+            <span class="modal-action-title">Create a Character</span>
+            <span class="modal-action-sub">Shared with everyone, reviewed by hand</span>
+          </button>
+        </div>
+
+        <details class="avatar-picker" id="avatarEdit">
+          <summary>Change profile picture</summary>
+          <div class="avatar-edit-body">
+            <div class="avatar-preview" id="meAvatarPreview"></div>
+            <div class="avatar-picker-actions">
+              <label class="btn-ghost btn-sm" for="avatarFileEdit">
+                Upload image
+                <input type="file" id="avatarFileEdit" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+              </label>
+              <button type="button" class="btn-ghost btn-sm" id="avatarResetEdit">Use generated</button>
+            </div>
+            <label class="auth-row">
+              <span>Image URL</span>
+              <input id="avatarUrlEdit" type="url" maxlength="2000" placeholder="https://…" spellcheck="false">
+            </label>
+          </div>
+        </details>
+
+        <label class="auth-row">
+          <span>Username</span>
+          <input id="profileUsername" type="text" maxlength="32" spellcheck="false">
+        </label>
+        <p id="profileStatus" class="auth-status" role="status" aria-live="polite"></p>
+        <div class="auth-confirm-row">
+          <button type="button" id="profileSaveBtn" class="btn-primary btn-sm">Save changes</button>
+          <button type="button" id="logoutBtn" class="btn-ghost btn-sm">Sign out</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PERSONA -->
+  <div id="personaModal" class="modal-overlay hidden">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="personaTitle">
+      <button type="button" class="modal-close" id="closePersonaBtn" aria-label="Close">&times;</button>
+      <div class="modal-head">
+        <h2 id="personaTitle">Your Persona</h2>
+        <p class="modal-sub">Appended to every character's system prompt, so they know who they're talking to.</p>
+      </div>
+      <label class="auth-row auth-row-stack">
+        <span>About you</span>
+        <textarea id="personaText" class="auth-textarea" maxlength="2000" placeholder="e.g. I write Rust and Linux tooling. Prefer short answers, skip the hand-holding. Usually here late at night."></textarea>
+      </label>
+      <p class="field-hint"><span id="personaCount">0</span> / 2000. Characters are told to use this silently — they will not mention it exists.</p>
+      <p id="personaStatus" class="auth-status" role="status" aria-live="polite"></p>
+      <div class="auth-confirm-row">
+        <button type="button" id="personaClear" class="btn-ghost btn-sm">Clear</button>
+        <button type="button" id="personaSave" class="btn-primary btn-sm">Save persona</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CREATE CHARACTER -->
+  <div id="charModal" class="modal-overlay hidden">
+    <div class="modal modal-lg" role="dialog" aria-modal="true" aria-labelledby="charTitle">
+      <button type="button" class="modal-close" id="closeCharBtn" aria-label="Close">&times;</button>
+      <div class="modal-head">
+        <h2 id="charTitle">Create a Character</h2>
+        <p class="modal-sub">Everyone can use what you make. Anything objectionable gets removed by hand.</p>
+      </div>
+      <div class="field-grid">
+        <label class="auth-row">
+          <span>Name</span>
+          <input id="charName" type="text" maxlength="48" placeholder="Display name">
+        </label>
+        <label class="auth-row">
+          <span>Avatar URL</span>
+          <input id="charAvatar" type="url" maxlength="2000" placeholder="https://… (optional)" spellcheck="false">
+        </label>
+      </div>
+      <label class="auth-row">
+        <span>Greeting</span>
+        <input id="charGreeting" type="text" maxlength="600" placeholder="Their first line to you (optional)">
+      </label>
+      <label class="auth-row auth-row-stack">
+        <span>System prompt</span>
+        <textarea id="charPrompt" class="auth-textarea" maxlength="4000" placeholder="Who they are, how they speak, what they know, what they refuse."></textarea>
+      </label>
+      <p class="field-hint"><span id="charPromptCount">0</span> / 4000 characters.</p>
+      <p id="charStatus" class="auth-status" role="status" aria-live="polite"></p>
+      <button type="button" id="charSubmit" class="btn-primary auth-submit">Create character</button>
+    </div>
+  </div>
 </div>
 
 <script src="characters.js"></script>
+<script src="passwords.js"></script>
 <script src="app.js"></script>
 <script>
 (function() {

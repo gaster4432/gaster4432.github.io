@@ -1,5 +1,595 @@
 const WORKER_URL = 'https://cf-chat.archlinuxkid99.workers.dev';
 
+/* ─── Context budget ───
+ * Mirrors the worker so we never ship a payload that cannot possibly fit.
+ * The worker is authoritative: /api/models returns these numbers and
+ * fetchBudget() overwrites the fallback below. Until that lands we use the
+ * same values, so a send on a cold cache is still correctly bounded.
+ */
+const BUDGET_FALLBACK = {
+  contextWindow: 131072,
+  maxOutputTokens: 8192,
+  templateOverhead: 1024,
+  systemReserve: 8192,
+  perMessageOverhead: 4,
+  charsPerToken: 3.5,
+  cjkTokensPerChar: 2,
+  maxSystemChars: 16000,
+  maxMessageChars: 32000,
+};
+let budget = { ...BUDGET_FALLBACK };
+
+// Declared here (not with the account block below) because
+// historyBudgetFor reads it and must never hit the temporal dead zone.
+let personaReserveTokens = 0;
+
+// Ranges where one character can cost ~1-2 tokens. The astral branch needs
+// the /u flag and matches a full codepoint while String.length counts it as
+// 2 units, which inflates the remainder — the safe direction.
+const DENSE_RE =
+  /[\u1100-\u11FF\u2E80-\uA4CF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]|[\u{20000}-\u{3FFFF}]/gu;
+
+function estimateTokens(text) {
+  if (typeof text !== 'string' || text.length === 0) return 0;
+  const dense = text.match(DENSE_RE);
+  const d = dense ? dense.length : 0;
+  return Math.ceil((text.length - d) / budget.charsPerToken) + d * budget.cjkTokensPerChar;
+}
+
+function messageTokens(content) {
+  return estimateTokens(content) + budget.perMessageOverhead;
+}
+
+/**
+ * Tokens left for history AND the incoming message, once system prompt,
+ * persona and output reserve are paid for. The message must be budgeted
+ * alongside history — reserving only for history lets a max-length message
+ * push the request over the model's window.
+ */
+function conversationRoomFor(systemPrompt, greeting) {
+  let used = messageTokens(systemPrompt) + personaReserveTokens;
+  if (greeting) used += messageTokens(greeting);
+  return Math.max(0, budget.contextWindow - budget.maxOutputTokens - budget.templateOverhead
+    - Math.min(budget.systemReserve, used));
+}
+
+async function fetchBudget() {
+  try {
+    const res = await fetch(`${WORKER_URL}/api/models`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && data.budget && typeof data.budget === 'object') {
+      budget = { ...BUDGET_FALLBACK, ...data.budget };
+    }
+  } catch (e) {}
+}
+
+/* ─── Accounts & profile ─── */
+
+let sessionId = loadJSON('pkax_session', '') || '';
+let me = null;
+
+// Staged avatar while the guest form is open, before any account exists.
+let pendingAvatar = '';
+
+/** Single fetch wrapper so the session header is never forgotten. */
+async function api(path, opts = {}) {
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+  if (sessionId) headers.Authorization = 'Bearer ' + sessionId;
+  let res;
+  try {
+    res = await fetch(WORKER_URL + path, Object.assign({}, opts, { headers }));
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: 'network' } };
+  }
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+const AUTH_ERRORS = {
+  network: 'Could not reach the server.',
+  credentials_required: 'Enter a username and password.',
+  bad_password: 'That password does not match.',
+  username_taken: 'That username is already taken.',
+  sec_expired: 'The 60 second window expired — try again.',
+  sec_mismatch: 'That registration did not match.',
+  invalid_username: 'Usernames are 3–32 characters: letters, numbers, - or _.',
+  invalid_verifier: 'That password could not be read.',
+  invalid_avatar: 'That image could not be used. Try a URL or a PNG/JPEG under a couple of hundred KB.',
+  rate_limited: 'Too many attempts — wait a moment.',
+  auth_required: 'You need to sign in first.',
+  'Database migration pending': 'The worker needs a database migration first.',
+};
+
+function authMessage(data, fallback) {
+  const key = data && data.error;
+  if (key && AUTH_ERRORS[key]) return AUTH_ERRORS[key];
+  return fallback || (key || 'Something went wrong.');
+}
+
+/* --- avatar helpers --- */
+
+// Only schemes that are safe in an <img src>. Mirrors sanitizeAvatar()
+// on the worker so the UI can reject bad input before a round trip.
+function isUsableAvatar(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return true;
+  if (/^https?:\/\//i.test(raw)) return true;
+  return /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/i.test(raw) && raw.length <= 200000;
+}
+
+/**
+ * Deterministic gradient + initial, used when no picture is set. Keeps the
+ * profile row looking intentional instead of showing a broken image.
+ */
+function generatedAvatar(name) {
+  const label = String(name || 'Guest').trim();
+  let h = 0;
+  for (let i = 0; i < label.length; i++) h = (h * 31 + label.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  const initial = label.charAt(0).toUpperCase() || 'G';
+  const safeInitial = /[A-Z0-9]/.test(initial) ? initial : 'G';
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+    '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
+    `<stop offset="0" stop-color="hsl(${hue} 62% 52%)"/>` +
+    `<stop offset="1" stop-color="hsl(${(hue + 48) % 360} 58% 40%)"/>` +
+    '</linearGradient></defs>' +
+    '<rect width="64" height="64" fill="url(#g)"/>' +
+    `<text x="32" y="43" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif" ` +
+    `font-size="30" font-weight="700" fill="rgba(255,255,255,.94)" text-anchor="middle">${safeInitial}</text>` +
+    '</svg>';
+  return 'data:image/svg+xml;base64,' + btoa(svg);
+}
+
+function avatarFor(name, avatar) {
+  // Guard against null/undefined: String(null) is "null", which would
+  // otherwise end up as a literal url("null") request.
+  const usable = avatar && isUsableAvatar(avatar) ? String(avatar).trim() : '';
+  return usable || generatedAvatar(name || 'Guest');
+}
+
+function paintAvatar(el, name, avatar) {
+  if (!el) return;
+  el.style.backgroundImage = `url("${avatarFor(name, avatar)}")`;
+  el.style.backgroundColor = '#222228';
+}
+
+/**
+ * Shrink an uploaded image to a square thumbnail in the browser so the
+ * stored data URI stays small. Rejects anything that is not a decodable image.
+ */
+function fileToAvatar(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error('No file'));
+    if (!/^image\/(png|jpeg|jpg|webp|gif)$/i.test(file.type)) {
+      return reject(new Error('That file type is not supported.'));
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      return reject(new Error('Image is larger than 8 MB.'));
+    }
+
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read that file.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('That file is not a readable image.'));
+      img.onload = () => {
+        const SIZE = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = SIZE;
+        canvas.height = SIZE;
+        const ctx = canvas.getContext('2d');
+
+        // Centre-crop to a square before scaling so faces are not squashed.
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width - side) / 2;
+        const sy = (img.height - side) / 2;
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, SIZE, SIZE);
+
+        let out;
+        try {
+          out = canvas.toDataURL('image/webp', 0.85);
+        } catch (e) {
+          out = canvas.toDataURL('image/jpeg', 0.85);
+        }
+        // Fall back to JPEG if webp encoded larger than the cap.
+        if (out.length > 200000) out = canvas.toDataURL('image/jpeg', 0.7);
+        resolve(out);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* --- overlays --- */
+
+function openOverlay(id) {
+  const el = $(id);
+  if (el) el.classList.remove('hidden');
+}
+
+function closeOverlay(id) {
+  const el = $(id);
+  if (el) el.classList.add('hidden');
+}
+
+function closeAllOverlays() {
+  ['authModal', 'personaModal', 'charModal'].forEach(closeOverlay);
+}
+
+/* --- profile card --- */
+
+function renderAuth() {
+  const name = me ? me.username : 'Guest';
+  $('profileName').textContent = name;
+
+  paintAvatar($('profileAvatar'), name, me ? me.avatar : '');
+
+  if (me) {
+    const bits = [];
+    if (personaReserveTokens > 0) bits.push('persona set');
+    bits.push('personas & characters');
+    $('profileSub').textContent = bits.join(' · ');
+    $('profileCard').setAttribute('aria-label', `Signed in as ${me.username}`);
+  } else {
+    $('profileSub').textContent = 'Sign in to sync';
+    $('profileCard').setAttribute('aria-label', 'Guest — sign in');
+  }
+}
+
+function setAuthStatus(text) {
+  const el = $('authStatus');
+  if (el) el.textContent = text || '';
+}
+
+function setProfileStatus(text) {
+  const el = $('profileStatus');
+  if (el) el.textContent = text || '';
+}
+
+/* --- session lifecycle --- */
+
+function adoptSession(d) {
+  sessionId = d.sessionId;
+  me = { id: d.userId, username: d.username, avatar: d.avatar || '' };
+  localStorage.setItem('pkax_session', sessionId);
+  closeOverlay('authModal');
+  renderAuth();
+}
+
+async function signOut() {
+  try { await api('/api/auth/logout', { method: 'POST' }); } catch (e) {}
+  sessionId = '';
+  me = null;
+  personaReserveTokens = 0;
+  localStorage.removeItem('pkax_session');
+  closeOverlay('authModal');
+  renderAuth();
+}
+
+async function restoreSession() {
+  if (!sessionId) { renderAuth(); return; }
+
+  const r = await api('/api/auth/session');
+  if (r.ok && r.data.authenticated) {
+    me = { id: r.data.userId, username: r.data.username, avatar: r.data.avatar || '' };
+    // The server injects this persona into every system prompt, so the client
+    // must reserve tokens for it or history could overflow the window.
+    personaReserveTokens = Math.ceil((r.data.personaChars || 0) / budget.charsPerToken);
+  } else {
+    sessionId = '';
+    localStorage.removeItem('pkax_session');
+  }
+  renderAuth();
+}
+
+/* --- guest view --- */
+
+function openAccountModal() {
+  setAuthStatus('');
+  setProfileStatus('');
+
+  const guest = !me;
+  $('authGuestView').classList.toggle('hidden', !guest);
+  $('authMeView').classList.toggle('hidden', guest);
+
+  if (guest) {
+    pendingAvatar = $('avatarUrl').value.trim();
+    paintAvatar($('avatarPreview'), $('authUsername').value.trim() || 'Guest', pendingAvatar);
+    $('authUsername').focus();
+  } else {
+    $('meName').textContent = me.username;
+    paintAvatar($('meAvatar'), me.username, me.avatar);
+    paintAvatar($('meAvatarPreview'), me.username, me.avatar);
+    $('avatarUrlEdit').value = me.avatar && /^https?:/i.test(me.avatar) ? me.avatar : '';
+    $('profileUsername').value = me.username;
+    $('personaSummary').textContent = personaReserveTokens > 0
+      ? `Set (${Math.round(personaReserveTokens * budget.charsPerToken)} characters of context)`
+      : 'Not set — characters get no extra context';
+  }
+
+  openOverlay('authModal');
+}
+
+function resetAuthConfirm() {
+  $('authConfirm').classList.add('hidden');
+  $('authSubmit').classList.remove('hidden');
+  $('authPassword').value = '';
+  setAuthStatus('');
+}
+
+async function doSignIn() {
+  const username = $('authUsername').value.trim();
+  const password = $('authPassword').value;
+  if (!username || !password) return setAuthStatus('Enter a username and password.');
+
+  setAuthStatus('Checking…');
+  const verifier = await Passwords.derive(username, password);
+  const r = await api('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, verifier }),
+  });
+
+  // The worker says there is no such user — offer to create the account.
+  if (r.data && r.data.error === 'no_such_user') {
+    $('authMissingName').textContent = username;
+    $('authConfirm').classList.remove('hidden');
+    $('authSubmit').classList.add('hidden');
+    return setAuthStatus('No account with that username.');
+  }
+  if (!r.ok) return setAuthStatus(authMessage(r.data, 'Sign in failed.'));
+
+  adoptSession(r.data);
+  await restoreSession();
+}
+
+async function doRegister() {
+  const username = $('authUsername').value.trim();
+  const password = $('authPassword').value;
+  if (!username) return setAuthStatus('Pick a username first.');
+  if (password.length < 8) return setAuthStatus('Use at least 8 characters.');
+
+  const avatar = $('avatarUrl').value.trim() || pendingAvatar;
+  setAuthStatus('Creating account…');
+  const verifier = await Passwords.derive(username, password);
+
+  // Step 1 — the worker answers "OK, give me a SEC" with a 64-char token
+  // that is only valid for 60 seconds.
+  const intent = await api('/api/auth/register-intent', {
+    method: 'POST',
+    body: JSON.stringify({ username }),
+  });
+  if (!intent.ok) return setAuthStatus(authMessage(intent.data, 'Could not start registration.'));
+
+  // Step 2 — hand that token straight back with the credentials.
+  const r = await api('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ username, verifier, sec: intent.data.sec, avatar }),
+  });
+  if (!r.ok) return setAuthStatus(authMessage(r.data, 'Registration failed.'));
+
+  adoptSession(r.data);
+  await restoreSession();
+}
+
+/* --- profile editing --- */
+
+async function saveProfile() {
+  const username = $('profileUsername').value.trim();
+  const url = $('avatarUrlEdit').value.trim();
+  const source = url || $('meAvatarPreview').dataset.uploaded || me.avatar || '';
+
+  if (!isUsableAvatar(source)) return setProfileStatus('That image could not be used.');
+
+  setProfileStatus('Saving…');
+  const r = await api('/api/auth/profile', {
+    method: 'PUT',
+    body: JSON.stringify({ username, avatar: source }),
+  });
+  if (!r.ok) return setProfileStatus(authMessage(r.data, 'Could not save.'));
+
+  me = { id: me.id, username: r.data.username, avatar: r.data.avatar || '' };
+  paintAvatar($('meAvatar'), me.username, me.avatar);
+  paintAvatar($('meAvatarPreview'), me.username, me.avatar);
+  renderAuth();
+  setProfileStatus('Saved.');
+  await restoreSession();
+}
+
+async function handleAvatarFile(inputId, previewId, urlId, target) {
+  const input = $(inputId);
+  if (!input || !input.files || !input.files[0]) return;
+
+  const statusId = target === 'profile' ? 'profileStatus' : 'authStatus';
+  const status = $(statusId);
+  if (status) status.textContent = 'Preparing image…';
+
+  try {
+    const dataUrl = await fileToAvatar(input.files[0]);
+    if (target === 'profile') {
+      const preview = $(previewId);
+      if (preview) preview.dataset.uploaded = dataUrl;
+      if ($(urlId)) $(urlId).value = '';
+      paintAvatar($(previewId), me.username, dataUrl);
+    } else {
+      pendingAvatar = dataUrl;
+      if ($(urlId)) $(urlId).value = '';
+      paintAvatar($(previewId), $('authUsername').value.trim() || 'Guest', dataUrl);
+    }
+    if (status) status.textContent = '';
+  } catch (e) {
+    if (status) status.textContent = e.message || 'Could not use that image.';
+  } finally {
+    input.value = '';
+  }
+}
+
+/* --- persona --- */
+
+async function openPersona() {
+  if (!me) return;
+  $('personaStatus').textContent = '';
+  openOverlay('personaModal');
+
+  const r = await api('/api/persona');
+  $('personaText').value = r.ok ? r.data.persona || '' : '';
+  updatePersonaCount();
+  $('personaText').focus();
+}
+
+function updatePersonaCount() {
+  const el = $('personaCount');
+  if (el) el.textContent = String($('personaText').value.length);
+}
+
+async function savePersona(clear) {
+  const value = clear ? '' : $('personaText').value;
+  const status = $('personaStatus');
+  status.textContent = 'Saving…';
+
+  const r = await api('/api/persona', {
+    method: 'PUT',
+    body: JSON.stringify({ persona: value }),
+  });
+  if (!r.ok) {
+    status.textContent = authMessage(r.data, 'Could not save.');
+    return;
+  }
+
+  personaReserveTokens = Math.ceil((r.data.persona || '').length / budget.charsPerToken);
+  $('personaSummary').textContent = personaReserveTokens > 0
+    ? `Set (${r.data.persona.length} characters of context)`
+    : 'Not set — characters get no extra context';
+  renderAuth();
+  closeOverlay('personaModal');
+}
+
+/* --- character creation --- */
+
+function updateCharPromptCount() {
+  const el = $('charPromptCount');
+  if (el) el.textContent = String($('charPrompt').value.length);
+}
+
+async function submitCharacter() {
+  const status = $('charStatus');
+  status.textContent = 'Creating…';
+
+  const r = await api('/api/characters', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: $('charName').value.trim(),
+      greeting: $('charGreeting').value.trim(),
+      systemPrompt: $('charPrompt').value.trim(),
+      avatar: $('charAvatar').value.trim(),
+    }),
+  });
+
+  if (!r.ok) {
+    status.textContent = authMessage(r.data, 'Could not create the character.');
+    return;
+  }
+
+  const c = r.data.character;
+  characters[c.id] = {
+    name: c.name,
+    greeting: c.greeting || '',
+    systemPrompt: c.systemPrompt || '',
+    avatar: c.avatar || '',
+    remote: true,
+  };
+  renderCharGrid();
+  renderSidebar();
+
+  closeOverlay('charModal');
+  ['charName', 'charGreeting', 'charPrompt', 'charAvatar'].forEach((id) => { $(id).value = ''; });
+  updateCharPromptCount();
+
+  // Drop the visitor straight into the character they just made.
+  selectCharacter(c.id);
+}
+
+function bindAuthUI() {
+  $('profileCard').onclick = openAccountModal;
+  $('closeAuthBtn').onclick = () => closeOverlay('authModal');
+
+  $('authSubmit').onclick = doSignIn;
+  $('authYes').onclick = doRegister;
+  $('authNo').onclick = resetAuthConfirm;
+  // Native form submit covers Enter in either field, and gives password
+  // managers a real form to attach to.
+  $('authForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    $('authConfirm').classList.contains('hidden') ? doSignIn() : doRegister();
+  });
+  $('authUsername').addEventListener('input', () => {
+    // Preview the generated avatar live while typing a new username.
+    if (!$('avatarUrl').value.trim() && !pendingAvatar) {
+      paintAvatar($('avatarPreview'), $('authUsername').value.trim() || 'Guest', '');
+    }
+  });
+  $('avatarUrl').addEventListener('input', (e) => {
+    const v = e.target.value.trim();
+    if (v && !isUsableAvatar(v)) return setAuthStatus('That image URL could not be used.');
+    pendingAvatar = v;
+    paintAvatar($('avatarPreview'), $('authUsername').value.trim() || 'Guest', v);
+  });
+  $('avatarFile').onchange = () => handleAvatarFile('avatarFile', 'avatarPreview', 'avatarUrl', 'guest');
+  $('avatarReset').onclick = () => {
+    pendingAvatar = '';
+    $('avatarUrl').value = '';
+    paintAvatar($('avatarPreview'), $('authUsername').value.trim() || 'Guest', '');
+  };
+
+  $('logoutBtn').onclick = signOut;
+  $('profileSaveBtn').onclick = saveProfile;
+  $('profileUsername').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveProfile(); });
+  $('avatarUrlEdit').addEventListener('input', (e) => {
+    const v = e.target.value.trim();
+    const preview = $('meAvatarPreview');
+    if (v && !isUsableAvatar(v)) return setProfileStatus('That image URL could not be used.');
+    if (preview) {
+      preview.dataset.uploaded = '';
+      paintAvatar(preview, me.username, v);
+    }
+    paintAvatar($('meAvatar'), me.username, v);
+  });
+  $('avatarFileEdit').onchange = () => handleAvatarFile('avatarFileEdit', 'meAvatarPreview', 'avatarUrlEdit', 'profile');
+  $('avatarResetEdit').onclick = () => {
+    const preview = $('meAvatarPreview');
+    $('avatarUrlEdit').value = '';
+    if (preview) {
+      preview.dataset.uploaded = '';
+      paintAvatar(preview, me.username, '');
+    }
+    paintAvatar($('meAvatar'), me.username, '');
+  };
+
+  $('openPersonaBtn').onclick = () => { closeOverlay('authModal'); openPersona(); };
+  $('openCharBtn').onclick = () => { closeOverlay('authModal'); openCharModal(); };
+  $('closePersonaBtn').onclick = () => closeOverlay('personaModal');
+  $('personaSave').onclick = () => savePersona(false);
+  $('personaClear').onclick = () => savePersona(true);
+  $('personaText').addEventListener('input', updatePersonaCount);
+
+  $('closeCharBtn').onclick = () => closeOverlay('charModal');
+  $('charSubmit').onclick = submitCharacter;
+  $('charPrompt').addEventListener('input', updateCharPromptCount);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAllOverlays();
+  });
+}
+
+function openCharModal() {
+  if (!me) return openAccountModal();
+  $('charStatus').textContent = '';
+  updateCharPromptCount();
+  openOverlay('charModal');
+  $('charName').focus();
+}
 let characters = {};
 let currentChar = null;
 let currentChatId = null;
@@ -54,7 +644,6 @@ const resetBtn = $('resetBtn');
 const charName = $('charName');
 const charGreeting = $('charGreeting');
 const chatCharAvatar = $('chatCharAvatar');
-const emptyState = $('emptyState');
 const inputArea = $('inputArea');
 const charPicker = $('charPicker');
 const charSidebarList = $('charSidebarList');
@@ -182,7 +771,6 @@ function selectCharacter(key) {
   currentChatId = null;
   history = [];
   messagesEl.innerHTML = '';
-  emptyState.classList.add('hidden');
   inputArea.classList.remove('hidden');
   charPicker.classList.add('hidden');
   const char = characters[key];
@@ -248,75 +836,25 @@ function extractThinkingBlocks(text) {
   return { thinking, cleaned };
 }
 
-function ensureReasoningEl(assistId) {
-  // Disabled — reasoning hidden on site per request
-  return null;
-}
-
-function addMessage(role, content, id, isGreeting, reasoning) {
+function addMessage(role, content, id, isGreeting) {
   id = id || uid();
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   div.dataset.msgId = id;
 
-  const extracted = extractThinkingBlocks(content);
-  const displayContent = extracted.cleaned;
-  // Reasoning hidden on site per request — no reasoning DOM added (model still reasons via <thinking> internally)
+  const { cleaned } = extractThinkingBlocks(content);
 
   const contentSpan = document.createElement('span');
   contentSpan.className = 'msg-text';
-  contentSpan.innerHTML = renderMsgContent(displayContent);
+  contentSpan.innerHTML = renderMsgContent(cleaned);
   div.appendChild(contentSpan);
 
-  const actions = document.createElement('div');
-  actions.className = 'msg-actions';
-
-  if (role === 'user') {
-    const editBtn = document.createElement('button');
-    editBtn.className = 'msg-action-btn';
-    editBtn.innerHTML = ICON_EDIT;
-    editBtn.title = 'Edit message';
-    editBtn.onclick = () => editUserMessage(id);
-    actions.appendChild(editBtn);
-  } else if (role === 'assistant' && !isGreeting) {
-    const regenBtn = document.createElement('button');
-    regenBtn.className = 'msg-action-btn';
-    regenBtn.innerHTML = ICON_REGEN;
-    regenBtn.title = 'Regenerate';
-    regenBtn.onclick = () => regenerateResponse(id);
-    actions.appendChild(regenBtn);
-
-    const editBtn = document.createElement('button');
-    editBtn.className = 'msg-action-btn';
-    editBtn.innerHTML = ICON_EDIT;
-    editBtn.title = 'Edit response';
-    editBtn.onclick = () => editAssistantMessage(id);
-    actions.appendChild(editBtn);
-
-    const msg = history.find(m => m._id === id);
-    if (msg && msg._versions && msg._versions.length > 1) {
-      const prevBtn = document.createElement('button');
-      prevBtn.className = 'msg-action-btn';
-      prevBtn.innerHTML = ICON_PREV;
-      prevBtn.title = 'Previous version';
-      prevBtn.onclick = () => cycleVersion(id, -1);
-      actions.appendChild(prevBtn);
-
-      const versionLabel = document.createElement('span');
-      versionLabel.className = 'version-label';
-      versionLabel.textContent = (msg._currentVersion + 1) + '/' + msg._versions.length;
-      actions.appendChild(versionLabel);
-
-      const nextBtn = document.createElement('button');
-      nextBtn.className = 'msg-action-btn';
-      nextBtn.innerHTML = ICON_NEXT;
-      nextBtn.title = 'Next version';
-      nextBtn.onclick = () => cycleVersion(id, 1);
-      actions.appendChild(nextBtn);
-    }
+  // buildActions is the single source of truth for these buttons — the
+  // streaming/regenerate paths call it too, so they stay in sync.
+  if (!(role === 'assistant' && isGreeting)) {
+    div.appendChild(buildActions(id));
   }
 
-  div.appendChild(actions);
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return div;
@@ -325,7 +863,7 @@ function addMessage(role, content, id, isGreeting, reasoning) {
 function renderMessages() {
   messagesEl.innerHTML = '';
   for (const m of history) {
-    const div = addMessage(m.role, m.content, m._id, m._greeting, m._reasoning);
+    const div = addMessage(m.role, m.content, m._id, m._greeting);
     if (m.role === 'assistant' && m._streaming) {
       div.querySelector('.msg-text').classList.add('streaming');
     }
@@ -488,7 +1026,7 @@ function findNextAssistant(idx) {
   return -1;
 }
 
-function buildSendHistory(upToIdx) {
+function buildSendHistory(upToIdx, rawMsg) {
   const char = characters[currentChar] || {};
   const result = [];
   for (let i = 0; i <= upToIdx; i++) {
@@ -497,118 +1035,158 @@ function buildSendHistory(upToIdx) {
     if (m.role === 'assistant' && char.greeting && m.content === char.greeting) continue;
     const cleaned = extractThinkingBlocks(m.content).cleaned;
     if (!cleaned) continue;
-    result.push({ role: m.role, content: String(cleaned).slice(0, 8000) });
+    result.push({ role: m.role, content: String(cleaned).slice(0, budget.maxMessageChars) });
   }
-  // Cap what leaves the browser — last 40 messages / 16k chars (latency + cost guard)
-  const MAX_MSGS = 40;
-  const MAX_CHARS = 16000;
-  let totalChars = 0;
-  const capped = [];
+
+  // Budget the incoming message together with history — reserving only for
+  // history lets a max-length message push the request over the window.
+  const room = conversationRoomFor(char.systemPrompt || '', char.greeting || '');
+  const msgChars = Math.min(
+    budget.maxMessageChars,
+    Math.floor(Math.max(0, room - budget.perMessageOverhead) / budget.charsPerToken)
+  );
+  const msg = String(rawMsg || '').trim().slice(0, msgChars);
+
+  const kept = [];
+  let used = messageTokens(msg);
+
   for (let i = result.length - 1; i >= 0; i--) {
-    totalChars += result[i].content.length;
-    if (capped.length >= MAX_MSGS || totalChars > MAX_CHARS) break;
-    capped.unshift(result[i]);
+    const cost = messageTokens(result[i].content);
+    if (used + cost > room) break;
+    kept.unshift(result[i]);
+    used += cost;
   }
-  return capped;
+
+  // A single message can exceed the whole budget. Slice it rather than
+  // dropping the turn and losing the question entirely.
+  if (kept.length === 0 && result.length > 0) {
+    const last = result[result.length - 1];
+    const spare = Math.max(0, room - used - budget.perMessageOverhead);
+    const maxChars = Math.floor(spare / budget.charsPerToken);
+    const clipped = last.content.slice(0, maxChars);
+    kept.push({
+      role: last.role,
+      content: clipped.length < last.content.length ? `${clipped}\n…[truncated]` : clipped,
+    });
+  }
+
+  return { history: kept, message: msg };
 }
 
 function makeSendBody(msg, sendHistory) {
   const char = characters[currentChar] || {};
   return {
-    message: String(msg || '').trim().slice(0, 4000),
-    character: { name: char.name || 'Assistant', greeting: char.greeting || '', systemPrompt: char.systemPrompt || '' },
+    message: String(msg || '').trim().slice(0, budget.maxMessageChars),
+    character: {
+      name: char.name || 'Assistant',
+      greeting: char.greeting || '',
+      systemPrompt: String(char.systemPrompt || '').slice(0, budget.maxSystemChars),
+    },
     history: sendHistory,
   };
 }
 
+/* Retries live here in the browser; the worker has no retry logic of its own.
+ * Returns a typed result so callers never have to sniff the text for a
+ * success sentinel.
+ */
 async function streamResponse(assistId, body) {
-  let full = '';
-  let reasoningText = '';
-  // frontend retry covers Cloudflare streaks (5/10 errors, streak up to 10) — combined with worker 6 tries = up to 10+ coverage
   const MAX_RETRIES = 5;
-  let lastErr = null;
-  for(let attempt=0; attempt<MAX_RETRIES; attempt++){
-  try {
-    if(attempt>0){
-      updateMsgText(assistId, (full ? full + "\n\n" : "") + `*Retrying (${attempt+1}/${MAX_RETRIES}) — backing off…*`);
-    }
-    const res = await fetch(`${WORKER_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok){
-      const t = await res.text().catch(()=> '');
-      throw new Error(`Worker ${res.status}: ${t.slice(0,500)}`);
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop() || '';
-      for (const line of lines) {
-        const t = line.trim();
-        if (!t.startsWith('data: ')) continue;
-        try {
-          const chunk = JSON.parse(t.slice(6));
+  const RETRY_STATUS = ['429', '500', '502', '503'];
 
-          if (chunk.reasoning) {
-            // Reasoning is internal — hidden on site per request (model still thinks via <thinking>, just not displayed)
-            reasoningText += chunk.reasoning;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    let full = '';
+    let streamError = null;
+
+    try {
+      if (attempt > 0) {
+        updateMsgText(assistId, (full ? full + '\n\n' : '') + `*Retrying (${attempt + 1}/${MAX_RETRIES}) — backing off…*`);
+      }
+
+      const res = await fetch(`${WORKER_URL}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Present only when signed in; the worker exempts these callers
+          // from the anonymous chat rate limit.
+          ...(sessionId ? { Authorization: 'Bearer ' + sessionId } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(`Worker ${res.status}: ${t.slice(0, 500)}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t.startsWith('data: ')) continue;
+          let chunk;
+          try {
+            chunk = JSON.parse(t.slice(6));
+          } catch (e) {
+            console.error('Stream parse error:', e);
+            continue;
           }
-
           if (chunk.content) {
             full += chunk.content;
             updateMsgText(assistId, full);
             messagesEl.scrollTop = messagesEl.scrollHeight;
           }
-
-          if (chunk.done) {
-            break;
-          }
-
           if (chunk.error) {
-            full = chunk.error;
-            updateMsgText(assistId, full);
+            streamError = chunk.error;
             break;
           }
-        } catch (e) {
-          console.error('Stream parse error:', e);
+          if (chunk.done) break;
         }
+        if (streamError || full) break;
       }
+
+      if (streamError) {
+        const retryable = RETRY_STATUS.some((s) => String(streamError).includes(s));
+        if (attempt < MAX_RETRIES - 1 && retryable) {
+          await backoff(attempt);
+          continue;
+        }
+        return { ok: false, text: String(streamError), attempts: attempt + 1 };
+      }
+
+      const { cleaned } = extractThinkingBlocks(full);
+      return { ok: true, text: cleaned, attempts: attempt + 1 };
+    } catch (e) {
+      console.error(`Stream attempt ${attempt + 1}/${MAX_RETRIES} failed:`, e);
+      const msg = e?.message || String(e);
+      const retryable =
+        RETRY_STATUS.some((s) => msg.includes(`Worker ${s}`)) ||
+        msg.includes('Failed to fetch') ||
+        msg.includes('NetworkError') ||
+        msg.includes('Failed');
+
+      if (attempt < MAX_RETRIES - 1 && retryable) {
+        await backoff(attempt);
+        continue;
+      }
+      return { ok: false, text: `Error: ${msg} (after ${attempt + 1} tries)`, attempts: attempt + 1 };
     }
-  } catch (e) {
-    console.error(`Stream attempt ${attempt+1}/${MAX_RETRIES} failed:`, e);
-    lastErr = e;
-    // Retry on network / 502 / 429 — streaks up to 10 are covered by worker (6) + frontend (5)
-    const msg = e?.message || String(e);
-    const retryable = msg.includes('Worker 429') || msg.includes('Worker 500') || msg.includes('Worker 502') || msg.includes('Worker 503') || msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Failed');
-    if(attempt < MAX_RETRIES-1 && retryable){
-      const delay = Math.min(7000, 600 * Math.pow(1.7, attempt) + Math.random()*400);
-      await new Promise(r=>setTimeout(r, delay));
-      continue;
-    }
-    full = full || 'Error: ' + msg + ` (after ${attempt+1} tries)`;
-    break;
   }
-  // success — break outer retry loop, don't retry if we got content
-  if(full && !full.startsWith('Error:')) break;
-  // if we got error but it was a chunk.error (model returned error payload) also retry
-  if(full && full.startsWith('Error:') && attempt < MAX_RETRIES-1){
-    const delay = Math.min(7000, 600 * Math.pow(1.7, attempt) + Math.random()*400);
-    await new Promise(r=>setTimeout(r, delay));
-    continue;
-  }
-  break;
-  }
-  const extracted = extractThinkingBlocks(full);
-  // Hide all reasoning on site — internal <thinking> still runs in model, just not displayed
-  if(lastErr && !full) full = 'Error: ' + (lastErr.message || 'request failed');
-  return { full: extracted.cleaned, reasoning: '' };
+
+  return { ok: false, text: 'Error: request failed', attempts: MAX_RETRIES };
+}
+
+function backoff(attempt) {
+  const delay = Math.min(7000, 600 * Math.pow(1.7, attempt) + Math.random() * 400);
+  return new Promise((r) => setTimeout(r, delay));
 }
 
 async function regenerateResponse(id) {
@@ -624,7 +1202,7 @@ async function regenerateResponse(id) {
   history[assistIdx]._currentVersion = history[assistIdx]._versions.length;
 
   const msg = history[userIdx].content;
-  const sendHistory = buildSendHistory(userIdx - 1);
+  const { history: sendHistory, message: budgetedMsg } = buildSendHistory(userIdx - 1, msg);
 
   const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
   if (el) {
@@ -633,19 +1211,20 @@ async function regenerateResponse(id) {
   }
 
   sending = true;
-  const body = makeSendBody(msg, sendHistory);
-  const { full, reasoning } = await streamResponse(id, body);
+  const body = makeSendBody(budgetedMsg, sendHistory);
+  const { ok, text } = await streamResponse(id, body);
   sending = false;
 
+  const full = ok ? text : '';
+
   history[assistIdx].content = full || oldContent;
-  history[assistIdx]._reasoning = reasoning || '';
   history[assistIdx]._versions.push(full || oldContent);
   history[assistIdx]._currentVersion = history[assistIdx]._versions.length - 1;
 
   const el2 = messagesEl.querySelector(`[data-msg-id="${id}"]`);
   if (el2) {
     el2.querySelector('.msg-text').classList.remove('streaming');
-    if (full) updateMsgText(id, full);
+    updateMsgText(id, full || ok ? full : text);
     const oldActions = el2.querySelector('.msg-actions');
     if (oldActions) {
       const newActions = buildActions(id);
@@ -671,7 +1250,7 @@ function cycleVersion(id, dir) {
 
 async function regenerateAfter(userIdx) {
   const msg = history[userIdx].content;
-  const sendHistory = buildSendHistory(userIdx - 1);
+  const { history: sendHistory, message: budgetedMsg } = buildSendHistory(userIdx - 1, msg);
 
   const newId = uid();
   const streamDiv = addMessage('assistant', '', newId, false);
@@ -679,12 +1258,12 @@ async function regenerateAfter(userIdx) {
   const entry = { role: 'assistant', content: '', _id: newId, _versions: [], _currentVersion: 0, _streaming: true };
   history.splice(userIdx + 1, 0, entry);
   sending = true;
-  const body = makeSendBody(msg, sendHistory);
-  const { full, reasoning } = await streamResponse(newId, body);
+  const body = makeSendBody(budgetedMsg, sendHistory);
+  const { ok, text } = await streamResponse(newId, body);
   sending = false;
 
+  const full = ok ? text : `Error: ${text}`;
   entry.content = full;
-  entry._reasoning = reasoning || '';
   entry._versions = [full];
   entry._currentVersion = 0;
   delete entry._streaming;
@@ -767,10 +1346,16 @@ async function sendMessage() {
   sendBtn.disabled = true;
 
   const userMsg = { role: 'user', content: msg, _id: uid() };
+
+  // Built BEFORE pushing userMsg/assistEntry: buildSendHistory(upToIdx)
+  // includes index upToIdx, and the worker appends `message` itself. Slicing
+  // at history.length - 2 after the push would resend the user's own prompt
+  // as both history and message.
+  const { history: sendHistory, message: budgetedMsg } = buildSendHistory(history.length - 1, msg);
+
   history.push(userMsg);
   addMessage('user', msg, userMsg._id, false);
 
-  const sendHistory = buildSendHistory(history.length - 2);
   const assistId = uid();
   addMessage('assistant', '', assistId, false);
   const assistEntry = { role: 'assistant', content: '', _id: assistId, _versions: [], _currentVersion: 0, _streaming: true };
@@ -778,13 +1363,13 @@ async function sendMessage() {
   const placeholder = messagesEl.querySelector(`[data-msg-id="${assistId}"] .msg-text`);
   if (placeholder) placeholder.classList.add('streaming');
 
-  const body = makeSendBody(msg, sendHistory);
-  const { full, reasoning } = await streamResponse(assistId, body);
+  const body = makeSendBody(budgetedMsg, sendHistory);
+  const { ok, text } = await streamResponse(assistId, body);
 
   sending = false;
   sendBtn.disabled = false;
+  const full = ok ? text : `Error: ${text}`;
   assistEntry.content = full;
-  assistEntry._reasoning = reasoning || '';
   assistEntry._versions = [full];
   assistEntry._currentVersion = 0;
   delete assistEntry._streaming;
@@ -837,7 +1422,6 @@ resetBtn.onclick = () => {
   currentChatId = null;
   history = [];
   messagesEl.innerHTML = '';
-  emptyState.classList.add('hidden');
   inputArea.classList.remove('hidden');
   charPicker.classList.add('hidden');
   const char = characters[currentChar];
@@ -857,7 +1441,6 @@ $('newChatBtn').onclick = () => {
   currentChatId = null;
   history = [];
   messagesEl.innerHTML = '';
-  emptyState.classList.add('hidden');
   inputArea.classList.remove('hidden');
   charPicker.classList.add('hidden');
   const char = characters[currentChar];
@@ -916,7 +1499,6 @@ function loadChatById(chatId) {
     };
   });
   messagesEl.innerHTML = '';
-  emptyState.classList.add('hidden');
   inputArea.classList.remove('hidden');
   charPicker.classList.add('hidden');
 
@@ -935,27 +1517,11 @@ function loadChatById(chatId) {
 initCharacters();
 renderSidebar();
 renderCharGrid();
+bindAuthUI();
 fetchRemoteCharacters();
+fetchBudget();
+restoreSession();
 
 // Top nav: Chats opens history, Discover returns to the all-characters grid
 if ($('spNavChats')) $('spNavChats').onclick = () => { renderHistoryPanel(); $('historyArea').classList.remove('hidden'); };
 if ($('spNavDiscover')) $('spNavDiscover').onclick = () => showDiscover();
-window.showDiscover = showDiscover;
-
-window.clearAllData = function() {
-  localStorage.clear();
-  sessionStorage.clear();
-  currentChatId = null;
-  currentChar = null;
-  history = [];
-  messagesEl.innerHTML = '';
-  emptyState.classList.remove('hidden');
-  inputArea.classList.add('hidden');
-  charName.textContent = 'Select a Character';
-  charGreeting.textContent = '';
-  setChatAvatar(null);
-  renderSidebar();
-  renderCharGrid();
-  renderHistoryPanel();
-  console.log('All local data cleared. Reload the page to reset completely.');
-};

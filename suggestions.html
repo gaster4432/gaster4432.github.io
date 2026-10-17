@@ -24,23 +24,8 @@
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Suggestion Box","url":"https://gaster4432.github.io/suggestions.html","applicationCategory":"CommunicationApplication","operatingSystem":"Web browser","description":"Anonymous suggestion box — drop an idea, see what everyone else has been thinking.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
 <link rel="stylesheet" href="/styles.css">
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body {
-  min-height: 100%;
-  background: #0a0a0b;
-  color: #e8e8ed;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-}
-body {
-  background:
-    radial-gradient(ellipse at 20% 50%, rgba(59,130,246,0.06) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 20%, rgba(20,184,166,0.04) 0%, transparent 40%),
-    #0a0a0b;
-}
-a { color: #3b82f6; text-decoration: none; }
-a:hover { text-decoration: underline; }
+/* Reset, tokens, base typography, link styles and body background come from
+   /styles.css. Only page-specific layout lives here. */
 .container {
   max-width: 640px;
   margin: 0 auto;
@@ -52,7 +37,7 @@ a:hover { text-decoration: underline; }
   justify-content: space-between;
   margin-bottom: 24px;
 }
-.back-link { font-size: 13px; color: rgba(255,255,255,0.55); }
+.back-link { font-size: 13px; color: rgba(255,255,255,0.55); text-decoration: none; }
 h1 {
   font-size: 28px;
   font-weight: 800;
@@ -110,8 +95,9 @@ h1 {
 /* ── List ── */
 .suggestion {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: 6px;
   padding: 16px 18px;
   background: rgba(255,255,255,0.02);
   border: 1px solid rgba(255,255,255,0.06);
@@ -126,13 +112,8 @@ h1 {
   color: rgba(255,255,255,0.5);
   padding-top: 2px;
 }
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
 .empty { text-align: center; color: rgba(255,255,255,0.45); padding: 40px 0; font-size: 13px; }
 #statusMsg { font-size: 12px; color: rgba(255,255,255,0.55); text-align: center; padding-top: 12px; }
-.suggestion { flex-direction: column; gap: 6px; }
 .sug-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; }
 .alias { font-size: 11px; font-weight: 600; letter-spacing: 0.4px; color: #67e8f9; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); padding: 2px 8px; border-radius: 20px; align-self: flex-start; }
 #charRow { display: flex; justify-content: flex-end; margin: -16px 4px 16px; }

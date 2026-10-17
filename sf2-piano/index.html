@@ -24,8 +24,8 @@
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"SF2 Piano","url":"https://gaster4432.github.io/sf2-piano/","applicationCategory":"MultimediaApplication","operatingSystem":"Web browser","description":"Upload any SoundFont (.sf2) and play it as a piano in the browser.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
 <link rel="stylesheet" href="/styles.css">
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; background: #0a0a0b; color: #e2e8f0; font-family: system-ui, sans-serif; overflow: hidden; }
+/* Reset, tokens, base typography and body background come from /styles.css. */
+html, body { height: 100%; color: #e2e8f0; overflow: hidden; }
 #app { display: flex; flex-direction: column; height: 100%; }
 
 header { position: relative; text-align: center; padding: 16px 20px; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
@@ -40,10 +40,6 @@ header p { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
 input[type="file"] { display: none; }
 .btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #e2e8f0; padding: 6px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.15s; }
 .btn:hover { background: rgba(255,255,255,0.12); }
-.btn-primary { background: var(--brand-1); border-color: var(--brand-1); color: #fff; }
-.btn-primary:hover { background: #2563eb; }
-.btn-primary:disabled { opacity: 0.3; cursor: default; }
-select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); color: #e2e8f0; padding: 5px 10px; border-radius: 8px; font-size: 13px; }
 .volume-wrap { display: flex; align-items: center; gap: 6px; }
 .volume-wrap input[type="range"] { width: 60px; accent-color: var(--brand-1); }
 
@@ -64,7 +60,6 @@ select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,
 .black-key-wrap { position: absolute; top: 0; pointer-events: none; }
 .black-key { width: 28px; height: 120px; background: #1a1a1a; border: 1px solid #000; border-radius: 0 0 4px 4px; cursor: pointer; pointer-events: auto; transition: background 0.05s; }
 .black-key:active, .black-key.active { background: #333; }
-.key-highlight { box-shadow: inset 0 0 0 2px var(--brand-1); }
 #pianoContainer { position: relative; }
 .note-splash { position: absolute; pointer-events: none; font-size: 18px; z-index: 5; transition: transform 0.6s ease-out, opacity 0.6s; }
 .white-key.active, .black-key.active { filter: hue-rotate(140deg) saturate(1.8); }
@@ -148,7 +143,6 @@ let synth = null;
 let audioContext = null;
 let loaded = false;
 let activeNotes = new Set();
-let sfData = null;
 let sfId = null;
 
 const $ = id => document.getElementById(id);
@@ -387,7 +381,6 @@ async function loadSF2(buffer, name) {
     }
 
     if (sfId !== null) { try { synth.unloadSFont(sfId); } catch(e) {} }
-    sfData = buffer;
     sfId = await synth.loadSFont(buffer);
     loaded = true;
     $('sfName').textContent = name || 'unnamed.sf2';

@@ -6,8 +6,21 @@ compatibility_date = "2026-10-17"
 [ai]
 binding = "AI"
 
-# D1 Database
+# D1 Database — characters (existing)
 [[d1_databases]]
 binding = "DB"
-database_name = "cf-chat"
+database_name = "cf-chat-characters"
 database_id = "045d9b49-944a-40ab-8cf1-183d8e08c9ad"
+
+# D1 Database — accounts, sessions, personas, rate-limit counters
+[[d1_databases]]
+binding = "AUTH_DB"
+database_name = "cf-chat-auth"
+database_id = "1a295e44-3911-4297-b886-a2b4a4137733"
+
+# KV — 60s registration tokens (native expirationTtl) + session cache.
+# Deliberately NOT used for rate-limit counters: KV caps writes at
+# 1/sec/key, which would break a strict counter.
+[[kv_namespaces]]
+binding = "AUTH_KV"
+id = "6215137a9eaa4760ab563cec0b3dcccb"
