@@ -1150,7 +1150,10 @@ async function streamResponse(assistId, body) {
           }
           if (chunk.done) break;
         }
-        if (streamError || full) break;
+        // Only an error frame ends the stream early. Normal completion is
+        // signalled by reader.read() returning done, so we must keep
+        // looping while content is still arriving.
+        if (streamError) break;
       }
 
       if (streamError) {
