@@ -30,6 +30,12 @@ const AVATAR_URL_RE = /^https?:\/\//i;
 const toHex = (buf) =>
   [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 
+// Workers KV only accepts string | ArrayBuffer | ReadableStream values.
+// Handing it a plain object throws and 500s the whole request, so every
+// structured value is serialised on the way in and read back with "json".
+const kvSet = (env, key, value, ttl) =>
+  env.AUTH_KV.put(key, JSON.stringify(value), { expirationTtl: ttl });
+
 const sha256Hex = async (value) =>
   toHex(await crypto.subtle.digest("SHA-256", enc.encode(String(value))));
 
@@ -91,9 +97,7 @@ async function resolveSession(env, request) {
 
   const user = { id: row.id, username: row.username, avatar: row.avatar || "" };
   if (env.AUTH_KV) {
-    await env.AUTH_KV.put(`sess:${token}`, user, {
-      expirationTtl: SESSION_CACHE_SEC,
-    });
+    await kvSet(env, `sess:${token}`, user, SESSION_CACHE_SEC);
   }
   return user;
 }
@@ -281,10 +285,11 @@ async function handleRegister(request, env, json) {
     throw error;
   }
 
-  await env.AUTH_KV.put(
+  await kvSet(
+    env,
     `sess:${sessionId}`,
     { id: userId, username: display, avatar },
-    { expirationTtl: SESSION_CACHE_SEC }
+    SESSION_CACHE_SEC
   );
 
   return json(
@@ -333,10 +338,11 @@ async function handleLogin(request, env, json) {
     .bind(sessionId, expiresAt, row.id)
     .run();
 
-  await env.AUTH_KV.put(
+  await kvSet(
+    env,
     `sess:${sessionId}`,
     { id: row.id, username: row.username, avatar: row.avatar || "" },
-    { expirationTtl: SESSION_CACHE_SEC }
+    SESSION_CACHE_SEC
   );
 
   return json({
@@ -381,15 +387,15 @@ async function handleProfileUpdate(request, env, json, user) {
   try {
     if (hasAvatarField) {
       await env.AUTH_DB.prepare(
-        "UPDATE users SET username = ?1, avatar = ?2, updated_at = datetime('now') WHERE id = ?3"
+        "UPDATE users SET username = ?1, username_lc = ?4, avatar = ?2, updated_at = datetime('now') WHERE id = ?3"
       )
-        .bind(nextName, avatar, user.id)
+        .bind(nextName, avatar, user.id, nextName.toLowerCase())
         .run();
     } else {
       await env.AUTH_DB.prepare(
-        "UPDATE users SET username = ?1, updated_at = datetime('now') WHERE id = ?2"
+        "UPDATE users SET username = ?1, username_lc = ?2, updated_at = datetime('now') WHERE id = ?3"
       )
-        .bind(nextName, user.id)
+        .bind(nextName, nextName.toLowerCase(), user.id)
         .run();
     }
   } catch (error) {
@@ -405,10 +411,11 @@ async function handleProfileUpdate(request, env, json, user) {
   const header = request.headers.get("Authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (env.AUTH_KV && SESSION_ID_RE.test(token)) {
-    await env.AUTH_KV.put(
+    await kvSet(
+      env,
       `sess:${token}`,
       { id: user.id, username: nextName, avatar: nextAvatar },
-      { expirationTtl: SESSION_CACHE_SEC }
+      SESSION_CACHE_SEC
     );
   }
 
