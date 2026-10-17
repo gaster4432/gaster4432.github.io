@@ -1,9 +1,13 @@
 name = "cf-chat"
 main = "worker.js"
-compatibility_date = "2026-07-19"
+compatibility_date = "2026-10-17"
 
+# Cloudflare Workers AI
+[ai]
+binding = "AI"
+
+# D1 Database
 [[d1_databases]]
 binding = "DB"
-database_name = "cf-chat-characters"
+database_name = "cf-chat"
 database_id = "045d9b49-944a-40ab-8cf1-183d8e08c9ad"
-
