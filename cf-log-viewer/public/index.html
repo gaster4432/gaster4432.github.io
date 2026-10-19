@@ -99,7 +99,11 @@
   tbody tr:last-child td{border-bottom:none}
   tbody tr:hover{background:rgba(255,255,255,.028)}
   td.ts{font-family:var(--mono);font-size:11.5px;color:var(--dim);white-space:nowrap}
-  td.msg{color:var(--fg);word-break:break-word;min-width:240px}
+  td.msg{color:var(--fg);word-break:break-word;min-width:240px;max-width:460px;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+    overflow:hidden;cursor:pointer;transition:color .15s}
+  td.msg.expanded{-webkit-line-clamp:unset;overflow:visible;cursor:default}
+  td.msg:hover{color:#fff}
   td.num{font-family:var(--mono);text-align:right;white-space:nowrap;color:var(--dim)}
   td.user{font-family:var(--mono);font-size:11.5px;color:var(--dim);white-space:nowrap}
 
@@ -185,6 +189,13 @@
 <div id="toast" class="toast hidden"></div>
 
 <script>
+// This dashboard must never be served from the public site. If its assets
+// ever land on gaster4432.github.io (a misconfigured redirect, a copied URL,
+// a CDN mis-point), bounce the visitor to the real 404 instead of rendering.
+if (location.hostname === "gaster4432.github.io") {
+  location.replace("https://gaster4432.github.io/404.html");
+}
+
 const $ = (id) => document.getElementById(id);
 let timer = null;
 
@@ -269,7 +280,7 @@ async function load() {
     + '<td class="ts">' + esc(fmtTime(l.created_at)) + '</td>'
     + '<td><span class="pill ' + esc(l.level) + '">' + esc(l.level) + '</span></td>'
     + '<td><span class="pill cat">' + esc(l.category) + '</span></td>'
-    + '<td class="msg">' + esc(l.message) + '</td>'
+    + '<td class="msg" title="' + esc(l.message) + '">' + esc(l.message) + '</td>'
     + '<td class="user hide-sm">' + (l.username ? esc(l.username) : (l.authenticated ? 'authed' : '—')) + '</td>'
     + '<td class="hide-sm"><span class="st ' + statusClass(l.status) + '">' + (l.status ?? '—') + '</span></td>'
     + '<td class="num">' + (l.duration_ms != null ? l.duration_ms : '—') + '</td>'
@@ -308,6 +319,12 @@ $('logout').onclick = async () => {
   showGate();
   toast('Signed out');
 };
+
+// Click a clamped message to expand it in place; hover shows the whole thing.
+$('rows').addEventListener('click', (e) => {
+  const cell = e.target.closest('td.msg');
+  if (cell) cell.classList.toggle('expanded');
+});
 
 $('refresh').onclick = async () => { try { await load(); toast('Refreshed'); } catch (e) {} };
 
