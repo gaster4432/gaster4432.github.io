@@ -46,6 +46,10 @@ const DENSE_RE =
 const MAX_SYSTEM_CHARS = 16000;
 const MAX_MESSAGE_CHARS = 32000;
 
+// How much chat text to keep per log row. Full enough to read the exchange,
+// small enough that a marathon session cannot bloat the logs database.
+const MAX_LOG_TEXT = 1500;
+
 /* Reasoning adds ~4-8s of latency before the first token, because the
  * hidden thinking phase emits nothing the browser can render. Flip this to
  * true for hard questions. GLM-4.7-Flash exposes it as
@@ -242,6 +246,21 @@ async function handleChat(request, env, context = {}) {
   // Only allow the configured Workers AI model.
   const selectedModel = MODEL;
 
+  // Log what the user actually asked for, not just "POST /api/chat -> 200".
+  writeLog(env, {
+    level: "info",
+    category: "chat",
+    message: "user: " + message.slice(0, MAX_LOG_TEXT),
+    path: "/api/chat",
+    method: "POST",
+    status: 200,
+    model: selectedModel,
+    userId: user ? user.id : null,
+    username: user ? user.username : null,
+    authenticated: !!user,
+    inputChars: message.length,
+  });
+
   if (model && model !== selectedModel) {
     return json(
       {
@@ -365,6 +384,7 @@ const greeting =
       const reader = aiStream.getReader();
       let buffer = "";
       let emittedChars = 0;
+      let emittedText = '';
       const startedAt = Date.now();
 
       function sendError(message, code = "upstream_error") {
@@ -405,6 +425,7 @@ const greeting =
 
         if (typeof content === "string" && content.length > 0) {
           emittedChars += content.length;
+          emittedText += content;
           emit(controller, encoder, { content });
         }
 
@@ -448,7 +469,7 @@ const greeting =
         writeLog(env, {
           level: "info",
           category: "stream",
-          message: "stream_complete",
+          message: "assistant: " + emittedText.slice(0, MAX_LOG_TEXT),
           path: "/api/chat",
           status: 200,
           model: selectedModel,
@@ -545,6 +566,7 @@ export default {
 function logRequest(request, env, url, res, started) {
   if (!env.LOG_DB) return;
   if (!url.pathname.startsWith("/api/")) return;
+  if (url.pathname === "/api/chat") return;
 
   const status = res?.status ?? 0;
   const level = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
