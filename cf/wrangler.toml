@@ -24,3 +24,10 @@ database_id = "1a295e44-3911-4297-b886-a2b4a4137733"
 [[kv_namespaces]]
 binding = "AUTH_KV"
 id = "6215137a9eaa4760ab563cec0b3dcccb"
+
+# D1 Database — request/error log. Read by the separate cf-log-viewer worker.
+# Writes are best-effort and never block a response (see cf/logging.js).
+[[d1_databases]]
+binding = "LOG_DB"
+database_name = "cf-chat-logs"
+database_id = "08e9e380-2247-475f-9fb9-ea33a0dfd795"

@@ -14,6 +14,7 @@ import {
   anonKey,
   resolveSession,
 } from "./auth.js";
+import { writeLog } from "./logging.js";
 
 const MODEL = "@cf/zai-org/glm-4.7-flash";
 
@@ -308,6 +309,19 @@ const greeting =
     });
   } catch (error) {
     console.error("[chat] Workers AI request failed:", error);
+    writeLog(env, {
+      level: "error",
+      category: "chat",
+      message: "upstream_ai_error: " + String((error && error.message) || error),
+      path: "/api/chat",
+      status: 502,
+      model: selectedModel,
+      userId: user ? user.id : null,
+      username: user ? user.username : null,
+      authenticated: !!user,
+      inputChars: message.length,
+      errorCode: "upstream_error",
+    });
 
     return json(
       {
@@ -322,6 +336,17 @@ const greeting =
   }
 
   if (!(aiStream instanceof ReadableStream)) {
+    writeLog(env, {
+      level: "error",
+      category: "stream",
+      message: "upstream did not return a ReadableStream",
+      path: "/api/chat",
+      status: 502,
+      model: selectedModel,
+      authenticated: !!user,
+      errorCode: "not_a_stream",
+    });
+
     return json(
       {
         error: "Workers AI did not return a readable stream",
@@ -339,6 +364,8 @@ const greeting =
     async start(controller) {
       const reader = aiStream.getReader();
       let buffer = "";
+      let emittedChars = 0;
+      const startedAt = Date.now();
 
       function sendError(message, code = "upstream_error") {
         emit(controller, encoder, {
@@ -377,6 +404,7 @@ const greeting =
           event?.content;
 
         if (typeof content === "string" && content.length > 0) {
+          emittedChars += content.length;
           emit(controller, encoder, { content });
         }
 
@@ -417,6 +445,21 @@ const greeting =
           processFrame(buffer);
         }
 
+        writeLog(env, {
+          level: "info",
+          category: "stream",
+          message: "stream_complete",
+          path: "/api/chat",
+          status: 200,
+          model: selectedModel,
+          userId: user ? user.id : null,
+          username: user ? user.username : null,
+          authenticated: !!user,
+          inputChars: userContent.length,
+          outputChars: emittedChars,
+          durationMs: Date.now() - startedAt,
+        });
+
         emit(controller, encoder, {
           done: true,
           model: selectedModel,
@@ -425,6 +468,16 @@ const greeting =
         controller.close();
       } catch (error) {
         console.error("[chat] stream failed:", error);
+        writeLog(env, {
+          level: "error",
+          category: "stream",
+          message: "stream_pump_failed: " + String((error && error.message) || error),
+          path: "/api/chat",
+          status: 500,
+          model: selectedModel,
+          authenticated: !!user,
+          errorCode: "stream_failed",
+        });
 
         try {
           sendError(
@@ -463,14 +516,64 @@ const greeting =
 
 export default {
   async fetch(request, env) {
+    const started = Date.now();
+    const url = new URL(request.url);
+
+    try {
+      const res = await route(request, env, url);
+      logRequest(request, env, url, res, started);
+      return res;
+    } catch (error) {
+      // Last-resort net: without this a thrown handler returns a bare
+      // Error 1102 and leaves no trace in the log database.
+      console.error("[worker] unhandled:", error);
+      writeLog(env, {
+        level: "error",
+        category: "app",
+        message: `Unhandled: ${error?.message || error}`,
+        method: request.method,
+        path: url.pathname,
+        status: 500,
+        durationMs: Date.now() - started,
+      });
+      return json({ error: "Internal error" }, 500);
+    }
+  }
+};
+
+/** One structured row per API request. Skips static/noisy paths. */
+function logRequest(request, env, url, res, started) {
+  if (!env.LOG_DB) return;
+  if (!url.pathname.startsWith("/api/")) return;
+
+  const status = res?.status ?? 0;
+  const level = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
+
+  let category = "http";
+  if (url.pathname === "/api/chat") category = "chat";
+  else if (url.pathname.startsWith("/api/auth/")) category = "auth";
+  else if (url.pathname.startsWith("/api/character")) category = "character";
+  else if (url.pathname.startsWith("/api/persona")) category = "persona";
+
+  writeLog(env, {
+    level,
+    category,
+    message: `${request.method} ${url.pathname} -> ${status}`,
+    method: request.method,
+    path: url.pathname,
+    status,
+    durationMs: Date.now() - started,
+    errorCode: status >= 400 ? url.searchParams.get("error") : null,
+  });
+}
+
+async function route(request, env, url) {
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
         headers: CORS,
       });
     }
-
-    const url = new URL(request.url);
 
     if (url.pathname === "/api/models") {
       return json({
@@ -574,5 +677,4 @@ export default {
     }
 
     return json({ error: "Not found" }, 404);
-  },
-};
+}

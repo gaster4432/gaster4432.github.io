@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<title>cf-chat · logs</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{
+    --bg:#08080a; --panel:#101014; --panel2:#16161c; --line:rgba(255,255,255,.08);
+    --fg:#f2f2f5; --dim:rgba(255,255,255,.58); --faint:rgba(255,255,255,.34);
+    --accent:#ff5c7a; --accent2:#b26bff; --ok:#3ddc97; --warn:#ffb020; --err:#ff5c7a;
+    --mono:'Cascadia Code','Fira Code',ui-monospace,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    min-height:100vh;background:
+      radial-gradient(ellipse at 15% 0%,rgba(255,92,122,.06) 0%,transparent 45%),
+      radial-gradient(ellipse at 85% 10%,rgba(178,107,255,.05) 0%,transparent 40%),
+      var(--bg);
+    color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  }
+
+  /* ── login gate ── */
+  #gate{position:fixed;inset:0;display:grid;place-items:center;padding:20px;z-index:50}
+  #gate.hidden{display:none}
+  .gate-card{
+    width:100%;max-width:380px;background:var(--panel);border:1px solid var(--line);
+    border-radius:18px;padding:32px 28px;box-shadow:0 24px 70px rgba(0,0,0,.6);
+  }
+  .gate-card h1{font-size:19px;font-weight:800;letter-spacing:-.3px}
+  .gate-card p{font-size:13px;color:var(--dim);margin:8px 0 22px;line-height:1.55}
+  .gate-card label{display:block;font-size:11px;font-weight:700;letter-spacing:.8px;
+    text-transform:uppercase;color:var(--faint);margin-bottom:7px}
+  .gate-card input{
+    width:100%;padding:13px 15px;border-radius:11px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--fg);font-family:var(--mono);font-size:14px;
+    outline:none;transition:border-color .15s;
+  }
+  .gate-card input:focus{border-color:var(--accent)}
+  .gate-btn{
+    width:100%;margin-top:14px;padding:13px;border:none;border-radius:11px;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;
+    font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.2px;
+  }
+  .gate-btn:disabled{opacity:.55;cursor:not-allowed}
+  .gate-msg{margin-top:12px;font-size:12.5px;min-height:1.2em;color:var(--err)}
+  .gate-note{margin-top:16px;font-size:11px;color:var(--faint);line-height:1.55}
+
+  /* ── shell ── */
+  #app{display:none;max-width:1400px;margin:0 auto;padding:24px 20px 60px}
+  #app.ready{display:block}
+
+  header{display:flex;align-items:center;gap:14px;margin-bottom:22px;flex-wrap:wrap}
+  header h1{font-size:20px;font-weight:800;letter-spacing:-.3px}
+  .dot-live{width:8px;height:8px;border-radius:50%;background:var(--ok);
+    box-shadow:0 0 10px var(--ok);flex-shrink:0}
+  .spacer{flex:1}
+  .btn{
+    background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--dim);
+    padding:8px 14px;border-radius:9px;font-family:inherit;font-size:12.5px;
+    font-weight:600;cursor:pointer;transition:all .15s;
+  }
+  .btn:hover{background:rgba(255,255,255,.12);color:#fff}
+  .btn.on{background:rgba(61,220,151,.14);border-color:rgba(61,220,151,.4);color:var(--ok)}
+
+  /* ── stat cards ── */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:15px 17px}
+  .stat span{display:block;font-size:10.5px;font-weight:700;letter-spacing:1px;
+    text-transform:uppercase;color:var(--faint);margin-bottom:5px}
+  .stat b{font-family:var(--mono);font-size:25px;font-weight:700;line-height:1.1}
+  .stat.err b{color:var(--err)} .stat.warn b{color:var(--warn)}
+  .stat.ok b{color:var(--ok)} .stat.mut b{color:var(--dim)}
+  .stat small{font-size:11px;color:var(--faint);margin-left:4px;font-weight:400}
+
+  /* ── filters ── */
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  select,input[type=search]{
+    padding:9px 12px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--fg);font-family:inherit;font-size:13px;outline:none;
+  }
+  select:focus,input[type=search]:focus{border-color:var(--accent)}
+  input[type=search]{min-width:210px}
+
+  /* ── table ── */
+  .wrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{
+    position:sticky;top:0;background:var(--panel2);text-align:left;
+    font-size:10.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+    color:var(--faint);padding:11px 13px;border-bottom:1px solid var(--line);white-space:nowrap;
+  }
+  tbody td{padding:10px 13px;border-bottom:1px solid rgba(255,255,255,.045);vertical-align:top}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:rgba(255,255,255,.028)}
+  td.ts{font-family:var(--mono);font-size:11.5px;color:var(--dim);white-space:nowrap}
+  td.msg{color:var(--fg);word-break:break-word;min-width:240px}
+  td.num{font-family:var(--mono);text-align:right;white-space:nowrap;color:var(--dim)}
+  td.user{font-family:var(--mono);font-size:11.5px;color:var(--dim);white-space:nowrap}
+
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;
+    font-weight:700;letter-spacing:.6px;text-transform:uppercase;white-space:nowrap}
+  .pill.info{background:rgba(61,220,151,.14);color:var(--ok)}
+  .pill.warn{background:rgba(255,176,32,.14);color:var(--warn)}
+  .pill.error{background:rgba(255,92,122,.15);color:var(--err)}
+  .pill.cat{background:rgba(255,255,255,.07);color:var(--dim);font-weight:600}
+  .st{display:inline-block;font-family:var(--mono);font-size:11.5px}
+  .st.s2{color:var(--ok)} .st.s3{color:var(--warn)}
+  .st.s4{color:var(--err)} .st.s5{color:var(--err);font-weight:700}
+
+  .empty{padding:56px 20px;text-align:center;color:var(--faint);font-size:13px}
+  .toast{
+    position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+    background:var(--panel);border:1px solid var(--line);border-radius:11px;
+    padding:11px 20px;font-size:13px;z-index:60;box-shadow:0 12px 40px rgba(0,0,0,.5);
+  }
+  .toast.hidden{display:none}
+  .hidden{display:none!important}
+
+  @media(max-width:820px){
+    .hide-sm{display:none}
+    .stat b{font-size:20px}
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN GATE — contains no password; it is only ever compared server-side. -->
+<div id="gate">
+  <div class="gate-card">
+    <h1>cf-chat logs</h1>
+    <p>Private dashboard. Enter the viewer password to continue.</p>
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" spellcheck="false" autofocus>
+    <button id="go" class="gate-btn">Unlock</button>
+    <div id="gateMsg" class="gate-msg"></div>
+    <div class="gate-note">The password is checked on the server and never leaves it. This dashboard is intentionally unlinked from the public site.</div>
+  </div>
+</div>
+
+<div id="app">
+  <header>
+    <span class="dot-live" aria-hidden="true"></span>
+    <h1>cf-chat · logs</h1>
+    <div class="spacer"></div>
+    <button id="refresh" class="btn">Refresh</button>
+    <button id="auto" class="btn">Auto&nbsp;5s</button>
+    <button id="logout" class="btn">Sign out</button>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="bar">
+    <select id="fLevel">
+      <option value="">All levels</option>
+      <option value="info">info</option>
+      <option value="warn">warn</option>
+      <option value="error">error</option>
+    </select>
+    <select id="fCat"><option value="">All categories</option></select>
+    <input type="search" id="fQ" placeholder="Search message, path or user…" spellcheck="false">
+    <button id="clear" class="btn">Clear</button>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th><th>Level</th><th>Category</th><th>Message</th>
+          <th class="hide-sm">User</th><th class="hide-sm">Status</th>
+          <th class="num">ms</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="empty" class="empty">No log entries match.</div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let timer = null;
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  clearTimeout(toast._h);
+  toast._h = setTimeout(() => t.classList.add('hidden'), 2600);
+}
+
+function fmtTime(s) {
+  if (!s) return '—';
+  return String(s).replace('T', ' ').replace('Z', '').slice(5, 19);
+}
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function statusClass(n) {
+  if (!n) return '';
+  if (n >= 500) return 's5';
+  if (n >= 400) return 's4';
+  if (n >= 300) return 's3';
+  if (n >= 200) return 's2';
+  return '';
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, Object.assign({ credentials: 'same-origin' }, opts));
+  if (res.status === 401) { showGate(); throw new Error('unauthenticated'); }
+  return res.json();
+}
+
+function showGate() {
+  $('gate').classList.remove('hidden');
+  $('app').classList.remove('ready');
+  if (timer) { clearInterval(timer); timer = null; $('auto').classList.remove('on'); }
+}
+function showApp() {
+  $('gate').classList.add('hidden');
+  $('app').classList.add('ready');
+}
+
+async function load() {
+  const cats = [...$('fCat').options].map((o) => o.value).filter(Boolean);
+  const [stats, data] = await Promise.all([
+    api('/api/stats'),
+    api('/api/logs?limit=250&level=' + encodeURIComponent($('fLevel').value)
+      + '&category=' + encodeURIComponent($('fCat').value)
+      + '&q=' + encodeURIComponent($('fQ').value)),
+  ]);
+
+  const s = stats.stats || {};
+  const total = Number(s.total || 0);
+  const errs = Number(s.errors || 0);
+  const warns = Number(s.warns || 0);
+  const rate = total ? ((errs / total) * 100) : 0;
+  const avg = Math.round(Number(s.avg_ms || 0));
+
+  $('stats').innerHTML = [
+    ['Requests', total.toLocaleString(), 'mut'],
+    ['Errors', errs.toLocaleString(), errs ? 'err' : 'mut'],
+    ['Warnings', warns.toLocaleString(), warns ? 'warn' : 'mut'],
+    ['Error rate', rate.toFixed(1) + '<small>%</small>', rate > 5 ? 'err' : 'ok'],
+    ['Avg time', avg + '<small>ms</small>', 'mut'],
+    ['Max time', Math.round(Number(s.max_ms || 0)) + '<small>ms</small>', 'mut'],
+  ].map(([label, val, cls]) =>
+    '<div class="stat ' + cls + '"><span>' + label + '</span><b>' + val + '</b></div>'
+  ).join('');
+
+  const cats2 = new Set(cats);
+  for (const row of stats.byCategory || []) cats2.add(row.category);
+  const sel = $('fCat').value;
+  $('fCat').innerHTML = '<option value="">All categories</option>' +
+    [...cats2].sort().map((c) => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('');
+  $('fCat').value = sel;
+
+  const logs = data.logs || [];
+  $('empty').style.display = logs.length ? 'none' : 'block';
+  $('rows').innerHTML = logs.map((l) =>
+    '<tr>'
+    + '<td class="ts">' + esc(fmtTime(l.created_at)) + '</td>'
+    + '<td><span class="pill ' + esc(l.level) + '">' + esc(l.level) + '</span></td>'
+    + '<td><span class="pill cat">' + esc(l.category) + '</span></td>'
+    + '<td class="msg">' + esc(l.message) + '</td>'
+    + '<td class="user hide-sm">' + (l.username ? esc(l.username) : (l.authenticated ? 'authed' : '—')) + '</td>'
+    + '<td class="hide-sm"><span class="st ' + statusClass(l.status) + '">' + (l.status ?? '—') + '</span></td>'
+    + '<td class="num">' + (l.duration_ms != null ? l.duration_ms : '—') + '</td>'
+    + '</tr>'
+  ).join('');
+}
+
+$('go').onclick = async () => {
+  const btn = $('go');
+  const msg = $('gateMsg');
+  msg.textContent = '';
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ password: $('pw').value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = data.error || 'Incorrect password'; return; }
+    $('pw').value = '';
+    showApp();
+    await load();
+  } catch (e) {
+    msg.textContent = 'Could not reach the viewer.';
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+$('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('go').click(); });
+
+$('logout').onclick = async () => {
+  await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+  showGate();
+  toast('Signed out');
+};
+
+$('refresh').onclick = async () => { try { await load(); toast('Refreshed'); } catch (e) {} };
+
+$('auto').onclick = () => {
+  if (timer) { clearInterval(timer); timer = null; $('auto').classList.remove('on'); toast('Auto-refresh off'); return; }
+  timer = setInterval(() => { load().catch(() => {}); }, 5000);
+  $('auto').classList.add('on');
+  toast('Auto-refresh on (5s)');
+};
+
+$('fLevel').onchange = load;
+$('fCat').onchange = load;
+$('fQ').addEventListener('input', () => { clearTimeout(window._t); window._t = setTimeout(() => load().catch(() => {}), 260); });
+$('clear').onclick = () => { $('fLevel').value = ''; $('fCat').value = ''; $('fQ').value = ''; load().catch(() => {}); };
+
+(async function boot() {
+  try {
+    const s = await fetch('/api/session', { credentials: 'same-origin' }).then((r) => r.json());
+    if (s.authenticated) { showApp(); await load(); }
+  } catch (e) { showGate(); }
+})();
+</script>
+</body>
+</html>

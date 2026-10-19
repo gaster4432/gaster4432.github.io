@@ -1,0 +1,25 @@
+name = "cf-log-viewer"
+main = "worker.js"
+compatibility_date = "2026-10-17"
+
+# Logs written by cf-chat (cf/logging.js).
+[[d1_databases]]
+binding = "LOGS_DB"
+database_name = "cf-chat-logs"
+database_id = "08e9e380-2247-475f-9fb9-ea33a0dfd795"
+
+# Dashboard UI is served as a Worker asset so the whole thing lives at one
+# origin. run_worker_first lets worker.js gate the API before assets.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+# ─────────────────────────────────────────────────────────────
+# The dashboard password is NOT here. It is a Worker secret:
+#
+#     npx wrangler secret put LOG_VIEWER_PASSWORD
+#
+# Setting it via `wrangler secret` keeps it out of git, out of the
+# deployed source, and out of the browser. Never hardcode it.
+# ─────────────────────────────────────────────────────────────
