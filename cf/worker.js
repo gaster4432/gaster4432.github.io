@@ -10,8 +10,6 @@ import {
   handleRegisterIntent,
   handleSessionStatus,
   loadPersona,
-  rateLimit,
-  anonKey,
   resolveSession,
 } from "./auth.js";
 import { writeLog } from "./logging.js";
@@ -735,18 +733,10 @@ async function route(request, env, url) {
       url.pathname === "/api/chat" &&
       request.method === "POST"
     ) {
-      // Chat stays open to everyone. Anonymous callers are metered;
-      // signed-in accounts skip the check entirely.
+      // Chat is open to everyone and is not metered. The login and
+      // registration endpoints still have their own limits, which is where
+      // brute forcing would actually hurt.
       const user = await resolveSession(env, request);
-      if (!user) {
-        const rl = await rateLimit(env, await anonKey(request, "chat"), 60, 10);
-        if (!rl.ok) {
-          return json(
-            { error: "rate_limited", retryAfter: rl.resetIn },
-            429
-          );
-        }
-      }
       return handleChat(request, env, { user });
     }
 
