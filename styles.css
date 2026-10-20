@@ -379,6 +379,7 @@ a.logo:hover { text-decoration: none; opacity: 0.85; }
 }
 .gallery-status,
 .gallery-empty {
+  grid-column: 1 / -1;
   font-size: 13px;
   color: var(--text-muted);
   padding: 18px 0;
