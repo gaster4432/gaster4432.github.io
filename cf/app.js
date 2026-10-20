@@ -811,16 +811,47 @@ function loadData() {
 }
 
 function saveData(chats) {
-  try {
-    localStorage.setItem('pkax_chats', JSON.stringify(chats));
-    return true;
-  } catch (e) {
-    // A full quota or blocked storage throws here. Swallowing it made a
-    // failed save look identical to a successful one.
-    console.error('[pkax] could not save chats:', e);
-    toast('Could not save this chat — browser storage is full or blocked.');
-    return false;
+  // Storage may be full. The conversation itself matters far more than the
+  // archive of old regenerations, so shed the oldest versions and try
+  // again rather than losing the whole chat.
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      localStorage.setItem('pkax_chats', JSON.stringify(chats));
+      return true;
+    } catch (e) {
+      if (!shedVersions(chats)) {
+        console.error('[pkax] could not save chats:', e);
+        toast('Could not save this chat — browser storage is full or blocked.');
+        return false;
+      }
+    }
   }
+  console.error('[pkax] could not save chats: storage is full');
+  toast('Could not save this chat — browser storage is full.');
+  return false;
+}
+
+/**
+ * Drop the oldest regeneration versions from every message, halving each
+ * list. Only ever touches the copy being written — the live conversation
+ * keeps every version it has, so nothing disappears from the screen.
+ *
+ * Returns true if anything was dropped.
+ */
+function shedVersions(chats) {
+  let dropped = 0;
+  for (const chat of chats) {
+    for (const m of chat.messages || []) {
+      if (!Array.isArray(m._versions) || m._versions.length < 2) continue;
+      const cut = Math.floor((m._versions.length - 1) / 2);
+      if (cut > 0) {
+        m._versions.splice(0, cut);
+        m._currentVersion = Math.max(0, Math.min(m._currentVersion, m._versions.length - 1));
+        dropped += cut;
+      }
+    }
+  }
+  return dropped > 0;
 }
 
 // Which character and chat were open. Without this the chats were still on
@@ -1363,10 +1394,30 @@ async function streamResponse(assistId, body) {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let full = '';
     let streamError = null;
+    let sawDone = false;
+
+    /* Re-rendering the whole reply for every chunk is O(n) a time, which
+     * becomes O(n^2) over a message. On a slow device the main thread
+     * stalls for long enough that the connection gets dropped part way
+     * through — which is what made replies look like they were being cut
+     * off. Paint at most once every 32ms instead of once per chunk.
+     */
+    let renderTimer = null;
+    const paint = (text) => {
+      if (renderTimer) return;
+      renderTimer = setTimeout(() => {
+        renderTimer = null;
+        updateMsgText(assistId, text);
+      }, 32);
+    };
+    const paintNow = (text) => {
+      if (renderTimer) { clearTimeout(renderTimer); renderTimer = null; }
+      updateMsgText(assistId, text);
+    };
 
     try {
       if (attempt > 0) {
-        updateMsgText(assistId, (full ? full + '\n\n' : '') + `*Retrying (${attempt + 1}/${MAX_RETRIES}) — backing off…*`);
+        paintNow(`*Retrying (${attempt + 1}/${MAX_RETRIES}) — backing off…*`);
       }
 
       const res = await fetch(`${WORKER_URL}/api/chat`, {
@@ -1407,14 +1458,14 @@ async function streamResponse(assistId, body) {
           }
           if (chunk.content) {
             full += chunk.content;
-            updateMsgText(assistId, full);
+            paint(full);
             messagesEl.scrollTop = messagesEl.scrollHeight;
           }
           if (chunk.error) {
             streamError = chunk.error;
             break;
           }
-          if (chunk.done) break;
+          if (chunk.done) { sawDone = true; break; }
         }
         // Only an error frame ends the stream early. Normal completion is
         // signalled by reader.read() returning done, so we must keep
@@ -1422,16 +1473,38 @@ async function streamResponse(assistId, body) {
         if (streamError) break;
       }
 
+      if (renderTimer) { clearTimeout(renderTimer); renderTimer = null; }
+
+      // The worker sends {done:true} when it has finished the reply. If
+      // that never arrives the answer is a fragment — the connection went
+      // away part way through. Try again rather than showing half an
+      // answer as though it were the whole thing.
+      if (!streamError && !sawDone) {
+        streamError = 'The reply was cut off before it finished.';
+      }
+
       if (streamError) {
-        const retryable = RETRY_STATUS.some((s) => String(streamError).includes(s));
+        const retryable =
+          !sawDone ||
+          RETRY_STATUS.some((s) => String(streamError).includes(s));
+
         if (attempt < MAX_RETRIES - 1 && retryable) {
           await backoff(attempt);
           continue;
+        }
+
+        // Nothing left to try. Show what did arrive instead of throwing
+        // the text away.
+        if (full) {
+          const { cleaned } = extractThinkingBlocks(full);
+          updateMsgText(assistId, cleaned + '\n\n*' + String(streamError) + '*');
+          return { ok: true, text: cleaned, attempts: attempt + 1, truncated: true };
         }
         return { ok: false, text: String(streamError), attempts: attempt + 1 };
       }
 
       const { cleaned } = extractThinkingBlocks(full);
+      updateMsgText(assistId, cleaned);
       return { ok: true, text: cleaned, attempts: attempt + 1 };
     } catch (e) {
       console.error(`Stream attempt ${attempt + 1}/${MAX_RETRIES} failed:`, e);
@@ -1446,6 +1519,13 @@ async function streamResponse(assistId, body) {
         await backoff(attempt);
         continue;
       }
+
+      // Keep whatever arrived — a half reply is better than nothing.
+      if (full) {
+        const { cleaned } = extractThinkingBlocks(full);
+        updateMsgText(assistId, cleaned + '\n\n*' + msg + '*');
+        return { ok: true, text: cleaned, attempts: attempt + 1, truncated: true };
+      }
       return { ok: false, text: `Error: ${msg} (after ${attempt + 1} tries)`, attempts: attempt + 1 };
     }
   }
@@ -1458,13 +1538,9 @@ function backoff(attempt) {
   return new Promise((r) => setTimeout(r, delay));
 }
 
-// Regenerations and edits are kept so the user can flip between them, but
-// every version is a full copy of the message. There is no limit on how
-// many you can make in a session — only the copy written to localStorage is
-// trimmed, because a chat that stored every version of every message would
-// fill the storage quota and stop saving altogether.
-const MAX_SAVED_VERSIONS = 8;
-
+// Regenerations and edits are kept so the user can flip between them.
+// There is no limit — every version is saved. If storage ever fills up,
+// saveData() sheds the oldest ones rather than losing the chat.
 function pushVersion(msg, text) {
   if (!Array.isArray(msg._versions)) msg._versions = [];
   const existing = msg._versions.indexOf(text);
@@ -1803,18 +1879,10 @@ function saveCurrentChat() {
   const firstUser = history.find(m => m.role === 'user');
   const messages = history.map(m => {
     const { _streaming, ...rest } = m;
-    // Only the newest few versions are written to disk. You can regenerate
-    // as many times as you like in the session, but storing every version
-    // of every message would fill the storage quota and stop the chat
-    // saving altogether.
-    if (Array.isArray(rest._versions) && rest._versions.length > MAX_SAVED_VERSIONS) {
-      const drop = rest._versions.length - MAX_SAVED_VERSIONS;
-      return {
-        ...rest,
-        _versions: rest._versions.slice(drop),
-        _currentVersion: Math.max(0, (rest._currentVersion ?? 0) - drop),
-      };
-    }
+    // Copy the version list. The saved copy is the one that gets trimmed
+    // if storage fills up, and the live conversation must keep every
+    // version it has.
+    if (Array.isArray(rest._versions)) rest._versions = rest._versions.slice();
     return rest;
   });
   upsertChat({
