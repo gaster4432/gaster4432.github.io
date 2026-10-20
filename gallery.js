@@ -157,23 +157,15 @@
     var target = document.getElementById('galleryGrid');
     if (!target) return;
 
-    var limit = Number(target.getAttribute('data-limit') || 0) || 0;
-    var more = document.getElementById('galleryMore');
-    var count = document.getElementById('galleryCount');
+    // No limit: the grid shows every image and simply runs onto more rows.
+    var limit = 0;
 
     target.innerHTML = '';
     target.appendChild(el('p', 'gallery-status', 'Loading memes…'));
 
     listImages()
       .then(function (images) {
-        var shown = renderGrid(target, images, limit);
-
-        if (count) count.textContent = String(images.length);
-
-        if (more) {
-          // Only offer the full gallery if there is more to see.
-          more.hidden = images.length <= shown;
-        }
+        renderGrid(target, images, limit);
       })
       .catch(function (err) {
         target.innerHTML = '';
