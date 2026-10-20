@@ -754,6 +754,7 @@ const ICON_EDIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" s
 const ICON_REGEN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
 const ICON_PREV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>';
 const ICON_NEXT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
+const ICON_DELETE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
 
 const messagesEl = $('messages');
 const chatInput = $('chatInput');
@@ -977,24 +978,31 @@ function selectCharacter(key) {
     saveActive();
     return;
   }
+  showFreshChat();
+  saveActive();
+  renderSidebar();
+  renderCharGrid();
+  renderHistoryPanel();
+}
+
+/**
+ * Show the character with an empty conversation — just the greeting, no
+ * saved chat behind it. Used by New Chat, by Clear, and when the last
+ * message of a chat is deleted.
+ */
+function showFreshChat() {
   currentChatId = null;
   history = [];
   messagesEl.innerHTML = '';
   inputArea.classList.remove('hidden');
   charPicker.classList.add('hidden');
-  const char = characters[key];
+  const char = characters[currentChar];
   if (char) {
     charName.textContent = char.name;
     charGreeting.textContent = char.greeting || '';
     setChatAvatar(char);
-    if (char.greeting) {
-      addMessage('assistant', char.greeting, null, true);
-    }
+    if (char.greeting) addMessage('assistant', char.greeting, null, true);
   }
-  saveActive();
-  renderSidebar();
-  renderCharGrid();
-  renderHistoryPanel();
 }
 
 function showDiscover() {
@@ -1604,7 +1612,58 @@ function buildActions(id) {
       div.appendChild(next);
     }
   }
+
+  // The trash sits at the end of the bar, apart from the other actions.
+  if (!msg._greeting) {
+    const del = document.createElement('button');
+    del.className = 'msg-action-btn msg-action-danger';
+    del.innerHTML = ICON_DELETE;
+    del.title = 'Delete';
+    del.setAttribute('aria-label', 'Delete message');
+    del.onclick = () => deleteMessage(id);
+    div.appendChild(del);
+  }
+
   return div;
+}
+
+/**
+ * Delete a message.
+ *
+ * It is dropped from the history that gets sent to the model, so it is
+ * sniped from the context as well as from the screen.
+ */
+function deleteMessage(id) {
+  if (sending) return;
+
+  const idx = history.findIndex(m => m._id === id);
+  if (idx === -1) return;
+
+  const msg = history[idx];
+  const raw = String(msg.content || '');
+  const preview = raw.replace(/\s+/g, ' ').slice(0, 40);
+  const what = msg.role === 'user' ? 'your message' : 'the reply';
+  if (!confirm(
+    `Delete ${what}?\n\n"${preview}${raw.length > 40 ? '…' : ''}"\n\nThis cannot be undone.`
+  )) return;
+
+  history.splice(idx, 1);
+
+  const el = messagesEl.querySelector(`[data-msg-id="${id}"]`);
+  if (el) el.remove();
+
+  // A chat with nothing left in it is not a chat.
+  if (history.length === 0) {
+    if (currentChatId) deleteChat(currentChatId);
+    showFreshChat();
+  } else {
+    saveCurrentChat();
+  }
+
+  saveActive();
+  renderSidebar();
+  renderCharGrid();
+  renderHistoryPanel();
 }
 
 // ─── Send ───
@@ -1778,18 +1837,7 @@ resetBtn.onclick = () => {
     return;
   }
   // Start a truly fresh chat — don't auto-load the next recent chat
-  currentChatId = null;
-  history = [];
-  messagesEl.innerHTML = '';
-  inputArea.classList.remove('hidden');
-  charPicker.classList.add('hidden');
-  const char = characters[currentChar];
-  if (char) {
-    charName.textContent = char.name;
-    charGreeting.textContent = char.greeting || '';
-    setChatAvatar(char);
-    if (char.greeting) addMessage('assistant', char.greeting, null, true);
-  }
+  showFreshChat();
   saveActive();
   renderSidebar();
   renderCharGrid();
@@ -1798,18 +1846,7 @@ resetBtn.onclick = () => {
 
 $('newChatBtn').onclick = () => {
   if (!currentChar || !characters[currentChar]) return;
-  currentChatId = null;
-  history = [];
-  messagesEl.innerHTML = '';
-  inputArea.classList.remove('hidden');
-  charPicker.classList.add('hidden');
-  const char = characters[currentChar];
-  if (char) {
-    charName.textContent = char.name;
-    charGreeting.textContent = char.greeting || '';
-    setChatAvatar(char);
-    if (char.greeting) addMessage('assistant', char.greeting, null, true);
-  }
+  showFreshChat();
   saveActive();
   renderSidebar();
   renderCharGrid();

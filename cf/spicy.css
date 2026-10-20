@@ -698,6 +698,15 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
 }
 
 .msg-action-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
+
+/* The delete button is destructive, so it reads red and sits apart from
+   the other actions at the end of the bar. */
+.msg-action-danger {
+  color: rgba(255, 92, 122, 0.62);
+  margin-left: 3px;
+}
+.msg-action-danger:hover { color: #ff5c7a; background: rgba(255, 92, 122, 0.16); }
+
 .version-label { font-size: 10.5px; color: var(--sp-faint); padding: 0 5px; font-weight: 600; }
 
 /* edit mode */
