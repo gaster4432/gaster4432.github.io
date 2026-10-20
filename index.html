@@ -211,6 +211,16 @@
       </a>
     </div>
 
+    <section class="gallery" aria-labelledby="galleryTitle">
+      <div class="gallery-head">
+        <h2 id="galleryTitle" class="gallery-title">memes</h2>
+        <a class="gallery-more" id="galleryMore" href="/memes/" hidden>see all <span id="galleryCount">0</span> →</a>
+      </div>
+      <div id="galleryGrid" class="gallery-grid" data-limit="12">
+        <p class="gallery-status">Loading memes…</p>
+      </div>
+    </section>
+
     <div class="welcome-footer">
       <nav aria-label="Footer">
         <a href="/pkax/">Pkax</a>
@@ -219,6 +229,7 @@
         <a href="/sf2-piano/">SF2 Piano</a>
         <a href="/bounce.html">Bouncing Cat</a>
         <a href="/suggestions.html">Suggestion Box</a>
+        <a href="/memes/">Memes</a>
         <a href="https://github.com/gaster4432" target="_blank" rel="noopener noreferrer">GitHub</a>
         <a href="https://discord.gg/2vXTa5pnJb" target="_blank" rel="noopener noreferrer">Discord</a>
       </nav>
@@ -228,6 +239,8 @@
 </div>
 
 <div id="homeCat" title="pspspsps" style="position:fixed;pointer-events:auto;cursor:pointer;z-index:0;font-size:24px;opacity:0.12;transition:opacity 0.3s, scale 0.15s" aria-hidden="true">🐱</div>
+
+<script src="/gallery.js"></script>
 
 <script>
 (function() {
