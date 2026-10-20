@@ -211,6 +211,25 @@ async function handleCharacters(request, env) {
   }
 }
 
+/**
+ * The context for a continuation has to end on the model's own last turn.
+ * Any trailing user messages are dropped, so "continue" always means "write
+ * the next assistant turn" and never quietly turns into "answer this new
+ * prompt".
+ */
+function trimToAssistantTurn(history) {
+  if (!Array.isArray(history)) return [];
+  const out = history.slice();
+  while (
+    out.length &&
+    out[out.length - 1] &&
+    out[out.length - 1].role !== "assistant"
+  ) {
+    out.pop();
+  }
+  return out;
+}
+
 async function handleChat(request, env, context = {}) {
   const { user = null } = context;
   let body;
@@ -226,6 +245,7 @@ async function handleChat(request, env, context = {}) {
     character,
     history,
     model,
+    continue: continueRequested,
   } = body ?? {};
 
   if (!env.AI || typeof env.AI.run !== "function") {
@@ -239,7 +259,14 @@ async function handleChat(request, env, context = {}) {
     return json({ error: "character required" }, 400);
   }
 
-  if (typeof message !== "string" || !message.trim()) {
+  /* A continuation carries no new user message. The whole context is sent
+   * again and ends on the model's own last turn, so it writes the next
+   * assistant turn. Nothing new is asked — this is how "carry on" works.
+   */
+  const text = typeof message === "string" ? message.trim() : "";
+  const isContinue = continueRequested === true;
+
+  if (!isContinue && !text) {
     return json({ error: "message required" }, 400);
   }
 
@@ -247,10 +274,20 @@ async function handleChat(request, env, context = {}) {
   const selectedModel = MODEL;
 
   // Log what the user actually asked for, not just "POST /api/chat -> 200".
+  let loggedText = text;
+  if (isContinue && Array.isArray(history)) {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const h = history[i];
+      if (h && h.role === "assistant" && typeof h.content === "string") {
+        loggedText = h.content;
+        break;
+      }
+    }
+  }
   writeLog(env, {
     level: "info",
     category: "chat",
-    message: "user: " + message.slice(0, MAX_LOG_TEXT),
+    message: (isContinue ? "continue: " : "user: ") + loggedText.slice(0, MAX_LOG_TEXT),
     path: "/api/chat",
     method: "POST",
     status: 200,
@@ -258,7 +295,7 @@ async function handleChat(request, env, context = {}) {
     userId: user ? user.id : null,
     username: user ? user.username : null,
     authenticated: !!user,
-    inputChars: message.length,
+    inputChars: loggedText.length,
   });
 
   if (model && model !== selectedModel) {
@@ -288,11 +325,6 @@ const greeting =
   // the hard cap, but a very large system prompt leaves less room, so the
   // message is also clamped to whatever actually fits.
   const room = conversationRoomFor(system, greeting);
-  const messageRoom = Math.floor(
-    Math.max(0, room - PER_MESSAGE_OVERHEAD) / CHARS_PER_TOKEN
-  );
-  const userContent = message.slice(0, Math.min(MAX_MESSAGE_CHARS, messageRoom));
-
   const messages = [{ role: "system", content: system }];
 
   if (greeting) {
@@ -302,16 +334,36 @@ const greeting =
     });
   }
 
-  // The persona is already folded into `system`, so history gets whatever
-  // the message did not use.
-  messages.push(
-    ...buildHistory(history, Math.max(0, room - messageTokens(userContent)))
-  );
+  // How much text came in, for the log. A continuation has no incoming
+  // turn, so it counts the context it carried on from.
+  let inputChars = 0;
 
-  messages.push({
-    role: "user",
-    content: userContent,
-  });
+  if (isContinue) {
+    // No incoming turn at all. The context ends on the model's own last
+    // reply and the model writes the next one.
+    messages.push(...buildHistory(trimToAssistantTurn(history), room));
+    inputChars = loggedText.length;
+  } else {
+    const messageRoom = Math.floor(
+      Math.max(0, room - PER_MESSAGE_OVERHEAD) / CHARS_PER_TOKEN
+    );
+    const userContent = text.slice(
+      0,
+      Math.min(MAX_MESSAGE_CHARS, messageRoom)
+    );
+    inputChars = userContent.length;
+
+    // The persona is already folded into `system`, so history gets whatever
+    // the message did not use.
+    messages.push(
+      ...buildHistory(history, Math.max(0, room - messageTokens(userContent)))
+    );
+
+    messages.push({
+      role: "user",
+      content: userContent,
+    });
+  }
 
   // Workers AI accepts a stream of model-generated events.
   let aiStream;
@@ -338,7 +390,7 @@ const greeting =
       userId: user ? user.id : null,
       username: user ? user.username : null,
       authenticated: !!user,
-      inputChars: message.length,
+      inputChars: inputChars,
       errorCode: "upstream_error",
     });
 
@@ -476,7 +528,7 @@ const greeting =
           userId: user ? user.id : null,
           username: user ? user.username : null,
           authenticated: !!user,
-          inputChars: userContent.length,
+          inputChars: inputChars,
           outputChars: emittedChars,
           durationMs: Date.now() - startedAt,
         });
