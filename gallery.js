@@ -17,16 +17,14 @@
   var API = 'https://api.github.com/repos/' + REPO + '/contents/' + FOLDER;
   var IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|svg|bmp)$/i;
 
-  /* Images are served from this site when the page is on a real host, so
-   * they come off the same CDN as everything else. The API's own download
-   * URL is the fallback for anything else (a local file, for instance).
+  /* Images are served from the API's own download URL.
+   *
+   * The contents API updates the moment a file is pushed, but the site
+   * itself takes 10-20 minutes to rebuild. Pointing the images at
+   * raw.githubusercontent.com means a newly pushed one shows up straight
+   * away instead of 404ing until the next deploy.
    */
-  var siteBase = /^https?:$/.test(window.location.protocol)
-    ? window.location.origin + '/'
-    : '';
-
   function imageUrl(entry) {
-    if (siteBase) return siteBase + encodeURI(entry.path || '');
     return entry.download_url;
   }
 
