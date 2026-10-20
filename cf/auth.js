@@ -199,7 +199,9 @@ async function handlePersona(request, env, json, user) {
     return json({ persona });
   }
 
-  if (request.method !== "PUT") {
+  // POST is accepted as well as PUT: the browser client cannot use PUT
+  // cross-origin because the CORS preflight only allows GET/POST/OPTIONS.
+  if (request.method !== "POST" && request.method !== "PUT") {
     return json({ error: "Method not allowed" }, 405);
   }
 
@@ -359,7 +361,11 @@ async function handleLogin(request, env, json) {
 // Lets a signed-in account change their display name and picture.
 // The KV session cache is refreshed so the next request sees the new values.
 async function handleProfileUpdate(request, env, json, user) {
-  if (request.method !== "PUT") return json({ error: "Method not allowed" }, 405);
+  // POST is accepted as well as PUT: the browser client cannot use PUT
+  // cross-origin because the CORS preflight only allows GET/POST/OPTIONS.
+  if (request.method !== "POST" && request.method !== "PUT") {
+    return json({ error: "Method not allowed" }, 405);
+  }
 
   const body = await request.json().catch(() => ({}));
   const current = await env.AUTH_DB.prepare(

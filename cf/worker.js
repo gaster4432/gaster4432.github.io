@@ -654,7 +654,7 @@ async function route(request, env, url) {
         const user = await resolveSession(env, request);
         return handleSessionStatus(request, env, json, user);
       }
-      if (action === "profile" && request.method === "PUT") {
+      if (action === "profile" && (request.method === "POST" || request.method === "PUT")) {
         const user = await resolveSession(env, request);
         if (!user) return json({ error: "auth_required" }, 401);
         return handleProfileUpdate(request, env, json, user);
