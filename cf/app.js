@@ -66,7 +66,34 @@ async function fetchBudget() {
 
 /* ─── Accounts & profile ─── */
 
-let sessionId = loadJSON('pkax_session', '') || '';
+/* The session id is 64 raw hex characters, not JSON. It used to be written
+ * as a bare string but read back through loadJSON(), which JSON.parse()s
+ * whatever it finds — that always threw, so every session was silently
+ * discarded on reload and the app always came back signed out. Read and
+ * write it as the plain string it actually is.
+ */
+const SESSION_ID_RE = /^[0-9a-f]{64}$/;
+
+function readSessionId() {
+  try {
+    const raw = localStorage.getItem('pkax_session');
+    const v = typeof raw === 'string' ? raw.trim() : '';
+    return SESSION_ID_RE.test(v) ? v : '';
+  } catch {
+    return '';
+  }
+}
+
+function writeSessionId(id) {
+  try {
+    if (id) localStorage.setItem('pkax_session', id);
+    else localStorage.removeItem('pkax_session');
+  } catch (e) {
+    console.error('[pkax] could not store the session id:', e);
+  }
+}
+
+let sessionId = readSessionId();
 let me = null;
 
 // Opt-in "Remember me": the saved session normally keeps you signed in via
@@ -276,7 +303,7 @@ function setProfileStatus(text) {
 function adoptSession(d) {
   sessionId = d.sessionId;
   me = { id: d.userId, username: d.username, avatar: d.avatar || '' };
-  localStorage.setItem('pkax_session', sessionId);
+  writeSessionId(sessionId);
   closeOverlay('authModal');
   renderAuth();
 }
@@ -286,7 +313,7 @@ async function signOut() {
   sessionId = '';
   me = null;
   personaReserveTokens = 0;
-  localStorage.removeItem('pkax_session');
+  writeSessionId('');
   clearCredentials();
   closeOverlay('authModal');
   renderAuth();
@@ -318,8 +345,9 @@ async function restoreSession() {
       refreshSession();
       return;
     }
+    // The worker no longer accepts this id (expired, superseded or revoked).
     sessionId = '';
-    localStorage.removeItem('pkax_session');
+    writeSessionId('');
   }
 
   // No usable session — fall back to the stored password if the user opted in.
@@ -333,7 +361,14 @@ async function restoreSession() {
     if (r.ok && r.data.sessionId) {
       sessionId = r.data.sessionId;
       me = { id: r.data.userId, username: r.data.username, avatar: r.data.avatar || '' };
-      localStorage.setItem('pkax_session', sessionId);
+      writeSessionId(sessionId);
+      // The login response does not carry the persona length, and the client
+      // budget needs it to reserve room for the persona. Ask for the session
+      // so the reserve is right on this load too.
+      const s = await api('/api/auth/session');
+      if (s.ok && s.data.authenticated) {
+        personaReserveTokens = Math.ceil((s.data.personaChars || 0) / budget.charsPerToken);
+      }
       renderAuth();
       return;
     }
@@ -355,7 +390,11 @@ function openAccountModal() {
   $('authMeView').classList.toggle('hidden', guest);
 
   if (guest) {
-    pendingAvatar = $('avatarUrl').value.trim();
+    // An uploaded image lands in pendingAvatar and clears the URL box, so
+    // only overwrite it when the URL box actually has something in it —
+    // otherwise reopening the modal threw the upload away.
+    const typedUrl = $('avatarUrl').value.trim();
+    if (typedUrl) pendingAvatar = typedUrl;
     paintAvatar($('avatarPreview'), $('authUsername').value.trim() || 'Guest', pendingAvatar);
     // Default to remembering only if credentials are already stored, so the
     // box never silently starts collecting a new password.
@@ -459,7 +498,9 @@ async function saveProfile() {
 
   setProfileStatus('Saving…');
   const r = await api('/api/auth/profile', {
-    method: 'PUT',
+    // POST, not PUT: the worker's CORS preflight only allows
+    // "GET, POST, OPTIONS", so a cross-origin PUT never leaves the browser.
+    method: 'POST',
     body: JSON.stringify({ username, avatar: source }),
   });
   if (!r.ok) return setProfileStatus(authMessage(r.data, 'Could not save.'));
@@ -524,7 +565,9 @@ async function savePersona(clear) {
   status.textContent = 'Saving…';
 
   const r = await api('/api/persona', {
-    method: 'PUT',
+    // POST, not PUT: see saveProfile() — PUT is not in the worker's CORS
+    // Allow-Methods list, so the browser would block the preflight.
+    method: 'POST',
     body: JSON.stringify({ persona: value }),
   });
   if (!r.ok) {
@@ -733,6 +776,31 @@ function setChatAvatar(char) {
 
 function uid() { return 'm' + (++msgCounter) + '_' + Date.now(); }
 
+/* ─── Toast ─── */
+
+let toastHost = null;
+
+function toast(message, ms = 4500) {
+  if (!toastHost) {
+    toastHost = document.createElement('div');
+    toastHost.id = 'toastHost';
+    document.body.appendChild(toastHost);
+  }
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = message;
+  toastHost.appendChild(el);
+  setTimeout(() => {
+    el.classList.add('toast-out');
+    setTimeout(() => el.remove(), 300);
+  }, ms);
+}
+
+/* ─── Chat store ─── */
+
+// Every chat lives in localStorage. The worker keeps no copy, so this is
+// the only place a conversation survives a reload.
+
 function loadData() {
   let stored = loadJSON('pkax_chats', null);
   if (stored === null) stored = loadJSON('cf_chat_chats', []);
@@ -740,7 +808,72 @@ function loadData() {
 }
 
 function saveData(chats) {
-  localStorage.setItem('pkax_chats', JSON.stringify(chats));
+  try {
+    localStorage.setItem('pkax_chats', JSON.stringify(chats));
+    return true;
+  } catch (e) {
+    // A full quota or blocked storage throws here. Swallowing it made a
+    // failed save look identical to a successful one.
+    console.error('[pkax] could not save chats:', e);
+    toast('Could not save this chat — browser storage is full or blocked.');
+    return false;
+  }
+}
+
+// Which character and chat were open. Without this the chats were still on
+// disk but the app always came back to an empty panel, which looked exactly
+// like nothing had been saved.
+const ACTIVE_KEY = 'pkax_active';
+
+function loadActive() {
+  try {
+    const raw = localStorage.getItem(ACTIVE_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    return v && typeof v === 'object' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveActive() {
+  try {
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify({
+      c: currentChar || '',
+      i: currentChatId || '',
+    }));
+  } catch (e) {
+    console.error('[pkax] could not record the open chat:', e);
+  }
+}
+
+/** Reopen whatever was on screen before the reload. */
+function restoreActiveChat() {
+  const active = loadActive();
+
+  if (active) {
+    // The exact chat that was open.
+    if (active.i) {
+      const chat = loadChat(active.i);
+      if (chat && characters[chat.character]) {
+        loadChatById(chat.id);
+        return;
+      }
+    }
+    // Otherwise the character on its own, which reopens its newest chat.
+    if (active.c && characters[active.c]) {
+      selectCharacter(active.c);
+      return;
+    }
+  }
+
+  // Nothing recorded — fall back to the newest chat on this device.
+  const chats = loadData()
+    .slice()
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+  if (chats.length && characters[chats[0].character]) {
+    selectCharacter(chats[0].character);
+  }
 }
 
 function loadChat(chatId) {
@@ -841,6 +974,7 @@ function selectCharacter(key) {
   const recent = getMostRecentChat(key);
   if (recent) {
     loadChatById(recent.id);
+    saveActive();
     return;
   }
   currentChatId = null;
@@ -857,6 +991,7 @@ function selectCharacter(key) {
       addMessage('assistant', char.greeting, null, true);
     }
   }
+  saveActive();
   renderSidebar();
   renderCharGrid();
   renderHistoryPanel();
@@ -1074,9 +1209,7 @@ function editAssistantMessage(id) {
     const newText = input.value.trim();
     if (!newText) { exitEdit(current); return; }
     history[idx].content = newText;
-    if (!history[idx]._versions) history[idx]._versions = [];
-    if (!history[idx]._versions.includes(newText)) history[idx]._versions.push(newText);
-    history[idx]._currentVersion = history[idx]._versions.length - 1;
+    pushVersion(history[idx], newText);
     exitEdit(newText);
     updateVersionLabel(id);
     saveCurrentChat();
@@ -1267,6 +1400,28 @@ function backoff(attempt) {
   return new Promise((r) => setTimeout(r, delay));
 }
 
+// Regenerations and edits are kept so the user can flip between them, but
+// every version is a full copy of the message. Left unbounded they fill the
+// storage quota, and then every save silently starts failing.
+const MAX_VERSIONS = 8;
+
+function pushVersion(msg, text) {
+  if (!Array.isArray(msg._versions)) msg._versions = [];
+  const existing = msg._versions.indexOf(text);
+  if (existing !== -1) {
+    msg._currentVersion = existing;
+  } else {
+    msg._versions.push(text);
+    msg._currentVersion = msg._versions.length - 1;
+  }
+  if (msg._versions.length > MAX_VERSIONS) {
+    const drop = msg._versions.length - MAX_VERSIONS;
+    msg._versions.splice(0, drop);
+    msg._currentVersion = Math.max(0, msg._currentVersion - drop);
+  }
+  return msg._currentVersion;
+}
+
 async function regenerateResponse(id) {
   if (sending) return;
   const assistIdx = history.findIndex(m => m._id === id);
@@ -1275,9 +1430,7 @@ async function regenerateResponse(id) {
   if (userIdx === -1) return;
 
   const oldContent = history[assistIdx].content;
-  if (!history[assistIdx]._versions) history[assistIdx]._versions = [oldContent];
-  else if (!history[assistIdx]._versions.includes(oldContent)) history[assistIdx]._versions.push(oldContent);
-  history[assistIdx]._currentVersion = history[assistIdx]._versions.length;
+  pushVersion(history[assistIdx], oldContent);
 
   const msg = history[userIdx].content;
   const { history: sendHistory, message: budgetedMsg } = buildSendHistory(userIdx - 1, msg);
@@ -1296,13 +1449,12 @@ async function regenerateResponse(id) {
   const full = ok ? text : '';
 
   history[assistIdx].content = full || oldContent;
-  history[assistIdx]._versions.push(full || oldContent);
-  history[assistIdx]._currentVersion = history[assistIdx]._versions.length - 1;
+  pushVersion(history[assistIdx], full || oldContent);
 
   const el2 = messagesEl.querySelector(`[data-msg-id="${id}"]`);
   if (el2) {
     el2.querySelector('.msg-text').classList.remove('streaming');
-    updateMsgText(id, full || ok ? full : text);
+    updateMsgText(id, ok ? full : text);
     const oldActions = el2.querySelector('.msg-actions');
     if (oldActions) {
       const newActions = buildActions(id);
@@ -1483,6 +1635,7 @@ function saveCurrentChat() {
     messages,
     updated_at: new Date().toISOString(),
   });
+  saveActive();
 }
 
 resetBtn.onclick = () => {
@@ -1509,6 +1662,7 @@ resetBtn.onclick = () => {
     setChatAvatar(char);
     if (char.greeting) addMessage('assistant', char.greeting, null, true);
   }
+  saveActive();
   renderSidebar();
   renderCharGrid();
   renderHistoryPanel();
@@ -1528,6 +1682,7 @@ $('newChatBtn').onclick = () => {
     setChatAvatar(char);
     if (char.greeting) addMessage('assistant', char.greeting, null, true);
   }
+  saveActive();
   renderSidebar();
   renderCharGrid();
   renderHistoryPanel();
@@ -1592,13 +1747,28 @@ function loadChatById(chatId) {
   renderHistoryPanel();
 }
 
-initCharacters();
-renderSidebar();
-renderCharGrid();
-bindAuthUI();
-fetchRemoteCharacters();
-fetchBudget();
-restoreSession();
+(async function boot() {
+  try {
+    initCharacters();
+    renderSidebar();
+    renderCharGrid();
+    bindAuthUI();
+
+    // The worker's budget constants and the remote character list both have
+    // to be in place before the session and the open chat are restored, so
+    // they are awaited rather than fired off and forgotten.
+    await fetchBudget();
+    await Promise.all([
+      fetchRemoteCharacters().catch(() => {}),
+      restoreSession().catch(() => {}),
+    ]);
+
+    // Reopen the chat that was on screen before the reload.
+    restoreActiveChat();
+  } catch (e) {
+    console.error('[pkax] boot failed:', e);
+  }
+})();
 
 // Top nav: Chats opens history, Discover returns to the all-characters grid
 if ($('spNavChats')) $('spNavChats').onclick = () => { renderHistoryPanel(); $('historyArea').classList.remove('hidden'); };
