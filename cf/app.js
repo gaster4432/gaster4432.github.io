@@ -175,14 +175,16 @@ function generatedAvatar(name) {
   const label = String(name || 'Guest').trim();
   let h = 0;
   for (let i = 0; i < label.length; i++) h = (h * 31 + label.charCodeAt(i)) >>> 0;
-  const hue = h % 360;
+  // Kept inside a blue band so a generated avatar never clashes with the
+  // theme. Different names still land on different blues.
+  const hue = 205 + (h % 36);
   const initial = label.charAt(0).toUpperCase() || 'G';
   const safeInitial = /[A-Z0-9]/.test(initial) ? initial : 'G';
   const svg =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
     '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
     `<stop offset="0" stop-color="hsl(${hue} 62% 52%)"/>` +
-    `<stop offset="1" stop-color="hsl(${(hue + 48) % 360} 58% 40%)"/>` +
+    `<stop offset="1" stop-color="hsl(${(hue + 18) % 360} 58% 40%)"/>` +
     '</linearGradient></defs>' +
     '<rect width="64" height="64" fill="url(#g)"/>' +
     `<text x="32" y="43" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif" ` +
@@ -201,7 +203,7 @@ function avatarFor(name, avatar) {
 function paintAvatar(el, name, avatar) {
   if (!el) return;
   el.style.backgroundImage = `url("${avatarFor(name, avatar)}")`;
-  el.style.backgroundColor = '#222228';
+  el.style.backgroundColor = '#232838';
 }
 
 /**

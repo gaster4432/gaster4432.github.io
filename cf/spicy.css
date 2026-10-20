@@ -2,18 +2,21 @@
    Written from scratch for cf/app.js. No third-party code copied.
    Compatible: preserves every id/class that app.js queries or injects. */
 
+/* Character.AI-style palette: a deep blue-black base, blue-tinted
+   surfaces, a black-to-white scale with a cool cast, and a single blue
+   accent. Everything else in this file is built from these tokens. */
 :root {
-  --sp-bg: #000000;
-  --sp-panel: #0e0e11;
-  --sp-panel-2: #141419;
-  --sp-line: rgba(255, 255, 255, 0.08);
-  --sp-text: #f2f2f5;
-  --sp-dim: rgba(255, 255, 255, 0.55);
-  --sp-faint: rgba(255, 255, 255, 0.32);
-  --sp-accent: #ff5c7a;
-  --sp-accent-2: #b26bff;
-  --sp-bubble-ai: #17171c;
-  --sp-bubble-me: linear-gradient(135deg, #ff5c7a, #b26bff);
+  --sp-bg: #0b0d14;
+  --sp-panel: #14161f;
+  --sp-panel-2: #1b1e2a;
+  --sp-line: rgba(140, 160, 205, 0.12);
+  --sp-text: #eef1f7;
+  --sp-dim: rgba(230, 237, 250, 0.58);
+  --sp-faint: rgba(230, 237, 250, 0.34);
+  --sp-accent: #4c8dff;
+  --sp-accent-2: #2f6fe0;
+  --sp-bubble-ai: #191c26;
+  --sp-bubble-me: linear-gradient(135deg, #4c8dff, #2f6fe0);
   --sp-radius: 16px;
 }
 
@@ -31,8 +34,8 @@ html, body {
 
 body {
   background:
-    radial-gradient(ellipse at 15% 0%, rgba(255, 92, 122, 0.07) 0%, transparent 45%),
-    radial-gradient(ellipse at 85% 10%, rgba(178, 107, 255, 0.06) 0%, transparent 40%),
+    radial-gradient(ellipse at 15% 0%, rgba(76, 141, 255, 0.08) 0%, transparent 45%),
+    radial-gradient(ellipse at 85% 10%, rgba(56, 189, 248, 0.05) 0%, transparent 40%),
     var(--sp-bg);
 }
 
@@ -121,7 +124,7 @@ body {
 }
 
 .sp-nav button:hover { background: rgba(255, 255, 255, 0.09); color: #fff; }
-.sp-nav button.active { border-color: rgba(255, 92, 122, 0.4); color: #fff; }
+.sp-nav button.active { border-color: rgba(76, 141, 255, 0.4); color: #fff; }
 
 .sidebar-section-label {
   font-size: 11px;
@@ -153,8 +156,8 @@ body {
 
 .sidebar-char:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
 .sidebar-char.active {
-  background: rgba(255, 92, 122, 0.12);
-  border-color: rgba(255, 92, 122, 0.3);
+  background: rgba(76, 141, 255, 0.13);
+  border-color: rgba(76, 141, 255, 0.32);
   color: #fff;
 }
 
@@ -162,7 +165,7 @@ body {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: #222228;
+  background: #232838;
   overflow: hidden;
   flex-shrink: 0;
   border: 1px solid var(--sp-line);
@@ -372,7 +375,7 @@ body {
   border-radius: 50%;
   background-size: cover;
   background-position: center;
-  background-color: #222228;
+  background-color: #232838;
   border: 1px solid var(--sp-line);
 }
 
@@ -450,8 +453,8 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
   transition: border-color 0.15s, background 0.15s;
 }
 .modal-action:hover {
-  border-color: rgba(255, 92, 122, 0.45);
-  background: rgba(255, 92, 122, 0.07);
+  border-color: rgba(76, 141, 255, 0.45);
+  background: rgba(76, 141, 255, 0.08);
 }
 .modal-action-title { font-size: 13.5px; font-weight: 700; color: var(--sp-text); }
 .modal-action-sub { font-size: 11.5px; color: var(--sp-faint); line-height: 1.4; }
@@ -459,8 +462,8 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
 /* ── Confirm block + status ── */
 .auth-confirm {
   padding: 13px 15px;
-  border: 1px solid rgba(255, 92, 122, 0.32);
-  background: rgba(255, 92, 122, 0.08);
+  border: 1px solid rgba(76, 141, 255, 0.32);
+  background: rgba(76, 141, 255, 0.1);
   border-radius: 12px;
 }
 .auth-confirm p { font-size: 13.5px; line-height: 1.5; margin-bottom: 10px; }
@@ -533,7 +536,7 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: #222228;
+  background: #232838;
   overflow: hidden;
   flex-shrink: 0;
   border: 1px solid var(--sp-line);
@@ -585,8 +588,8 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
   transition: transform 0.15s, border-color 0.15s;
 }
 
-.char-card:hover { transform: translateY(-2px); border-color: rgba(255, 92, 122, 0.45); }
-.char-card.active { border-color: var(--sp-accent); background: rgba(255, 92, 122, 0.08); }
+.char-card:hover { transform: translateY(-2px); border-color: rgba(76, 141, 255, 0.45); }
+.char-card.active { border-color: var(--sp-accent); background: rgba(76, 141, 255, 0.1); }
 
 .char-card-avatar {
   width: 64px;
@@ -594,7 +597,7 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
   border-radius: 50%;
   margin: 0 auto 8px;
   overflow: hidden;
-  background: #26262c;
+  background: #2a3040;
   border: 1px solid var(--sp-line);
 }
 
@@ -676,7 +679,7 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
   display: flex;
   gap: 2px;
   align-items: center;
-  background: #1d1d22;
+  background: #1f2432;
   border: 1px solid var(--sp-line);
   border-radius: 999px;
   padding: 2px 4px;
@@ -702,10 +705,10 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
 /* The delete button is destructive, so it reads red and sits apart from
    the other actions at the end of the bar. */
 .msg-action-danger {
-  color: rgba(255, 92, 122, 0.62);
+  color: rgba(255, 84, 84, 0.62);
   margin-left: 3px;
 }
-.msg-action-danger:hover { color: #ff5c7a; background: rgba(255, 92, 122, 0.16); }
+.msg-action-danger:hover { color: #ff5454; background: rgba(255, 84, 84, 0.16); }
 
 .version-label { font-size: 10.5px; color: var(--sp-faint); padding: 0 5px; font-weight: 600; }
 
@@ -713,7 +716,7 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
 .msg-edit-container { position: relative; width: 100%; }
 .msg-edit-input {
   width: 100%;
-  background: #000;
+  background: #05070d;
   border: 1px solid var(--sp-accent);
   border-radius: 10px;
   color: var(--sp-text);
@@ -741,7 +744,7 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
 
 /* code blocks rendered by app.js */
 .msg pre {
-  background: #08080a;
+  background: #0f121b;
   border: 1px solid var(--sp-line);
   border-radius: 10px;
   padding: 12px 14px;
@@ -853,12 +856,12 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
   cursor: pointer;
 }
 
-.history-item:hover { border-color: rgba(255, 92, 122, 0.4); }
-.history-item.active { border-color: var(--sp-accent); background: rgba(255, 92, 122, 0.07); }
+.history-item:hover { border-color: rgba(76, 141, 255, 0.4); }
+.history-item.active { border-color: var(--sp-accent); background: rgba(76, 141, 255, 0.08); }
 .history-item-title { font-size: 13.5px; font-weight: 600; }
 .history-item-meta { font-size: 11.5px; color: var(--sp-faint); }
 
-:focus-visible { outline: 2px solid rgba(255, 92, 122, 0.7); outline-offset: 2px; }
+:focus-visible { outline: 2px solid rgba(76, 141, 255, 0.78); outline-offset: 2px; }
 
 @media (max-width: 720px) {
   .sidebar { width: 62px; }
