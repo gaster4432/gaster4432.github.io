@@ -115,6 +115,10 @@
   function renderGrid(target, images, limit) {
     target.innerHTML = '';
 
+    // The target already carries the .gallery-grid class. Nesting a second
+    // grid inside it squeezes the items into a single overflowing column.
+    target.classList.add('gallery-grid');
+
     if (!images.length) {
       target.appendChild(el('p', 'gallery-empty',
         'Nothing here yet. Drop an image into the memes/data/ folder and it shows up here.'));
@@ -122,7 +126,6 @@
     }
 
     var shown = limit > 0 ? images.slice(0, limit) : images;
-    var grid = el('div', 'gallery-grid');
 
     shown.forEach(function (img) {
       var a = el('a', 'gallery-item');
@@ -146,10 +149,9 @@
         openLightbox(img);
       });
 
-      grid.appendChild(a);
+      target.appendChild(a);
     });
 
-    target.appendChild(grid);
     return shown.length;
   }
 
