@@ -1234,7 +1234,8 @@ function findNextAssistant(idx) {
   return -1;
 }
 
-function buildSendHistory(upToIdx, rawMsg) {
+/** The raw user/assistant turns up to and including upToIdx, cleaned. */
+function collectHistory(upToIdx) {
   const char = characters[currentChar] || {};
   const result = [];
   for (let i = 0; i <= upToIdx; i++) {
@@ -1245,18 +1246,18 @@ function buildSendHistory(upToIdx, rawMsg) {
     if (!cleaned) continue;
     result.push({ role: m.role, content: String(cleaned).slice(0, budget.maxMessageChars) });
   }
+  return result;
+}
 
-  // Budget the incoming message together with history — reserving only for
-  // history lets a max-length message push the request over the window.
-  const room = conversationRoomFor(char.systemPrompt || '', char.greeting || '');
-  const msgChars = Math.min(
-    budget.maxMessageChars,
-    Math.floor(Math.max(0, room - budget.perMessageOverhead) / budget.charsPerToken)
-  );
-  const msg = String(rawMsg || '').trim().slice(0, msgChars);
-
+/**
+ * Keep the newest contiguous run of turns that still fits alongside the
+ * tokens already reserved for the incoming turn. Walking backwards keeps
+ * the conversation coherent; dropping an arbitrary turn would leave an
+ * orphaned reply with no question attached.
+ */
+function keepWithinBudget(result, room, reservedTokens) {
   const kept = [];
-  let used = messageTokens(msg);
+  let used = reservedTokens;
 
   for (let i = result.length - 1; i >= 0; i--) {
     const cost = messageTokens(result[i].content);
@@ -1278,7 +1279,54 @@ function buildSendHistory(upToIdx, rawMsg) {
     });
   }
 
-  return { history: kept, message: msg };
+  return kept;
+}
+
+function buildSendHistory(upToIdx, rawMsg) {
+  const char = characters[currentChar] || {};
+  const result = collectHistory(upToIdx);
+
+  // Budget the incoming message together with history — reserving only for
+  // history lets a max-length message push the request over the window.
+  const room = conversationRoomFor(char.systemPrompt || '', char.greeting || '');
+  const msgChars = Math.min(
+    budget.maxMessageChars,
+    Math.floor(Math.max(0, room - budget.perMessageOverhead) / budget.charsPerToken)
+  );
+  const msg = String(rawMsg || '').trim().slice(0, msgChars);
+
+  return {
+    history: keepWithinBudget(result, room, messageTokens(msg)),
+    message: msg,
+  };
+}
+
+/**
+ * The request for a continuation.
+ *
+ * The whole context — every turn up to and including the model's last reply
+ * — is sent again with no new user message, and the model writes the next
+ * assistant turn. Nothing new is asked, so it simply keeps going. This is
+ * how "carry on" works.
+ */
+function makeContinueBody(continueIdx) {
+  const char = characters[currentChar] || {};
+  const room = conversationRoomFor(char.systemPrompt || '', char.greeting || '');
+
+  // Everything up to and including the turn being carried on from.
+  const result = collectHistory(continueIdx);
+
+  return {
+    message: '',
+    continue: true,
+    character: {
+      name: char.name || 'Assistant',
+      greeting: char.greeting || '',
+      systemPrompt: String(char.systemPrompt || '').slice(0, budget.maxSystemChars),
+    },
+    // No incoming turn, so the history may use the whole room.
+    history: keepWithinBudget(result, room, 0),
+  };
 }
 
 function makeSendBody(msg, sendHistory) {
@@ -1401,9 +1449,11 @@ function backoff(attempt) {
 }
 
 // Regenerations and edits are kept so the user can flip between them, but
-// every version is a full copy of the message. Left unbounded they fill the
-// storage quota, and then every save silently starts failing.
-const MAX_VERSIONS = 8;
+// every version is a full copy of the message. There is no limit on how
+// many you can make in a session — only the copy written to localStorage is
+// trimmed, because a chat that stored every version of every message would
+// fill the storage quota and stop saving altogether.
+const MAX_SAVED_VERSIONS = 8;
 
 function pushVersion(msg, text) {
   if (!Array.isArray(msg._versions)) msg._versions = [];
@@ -1413,11 +1463,6 @@ function pushVersion(msg, text) {
   } else {
     msg._versions.push(text);
     msg._currentVersion = msg._versions.length - 1;
-  }
-  if (msg._versions.length > MAX_VERSIONS) {
-    const drop = msg._versions.length - MAX_VERSIONS;
-    msg._versions.splice(0, drop);
-    msg._currentVersion = Math.max(0, msg._currentVersion - drop);
   }
   return msg._currentVersion;
 }
@@ -1568,9 +1613,80 @@ chatInput.onkeydown = (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 };
 
+/**
+ * Carry on from the model's last reply.
+ *
+ * The whole context is sent again with no new user message and the model
+ * writes the next assistant turn, so nothing extra is asked and the reply
+ * simply keeps going. Sending an empty message is what triggers this.
+ */
+async function continueLastResponse() {
+  // The model's last reply is the turn that gets carried on from.
+  let continueIdx = -1;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === 'assistant') { continueIdx = i; break; }
+  }
+
+  if (continueIdx === -1) {
+    toast('Nothing to continue yet — send a message first.');
+    return;
+  }
+
+  // A reply that failed is not something to carry on from.
+  if (String(history[continueIdx].content || '').startsWith('Error:')) {
+    toast('That reply failed — regenerate it first.');
+    return;
+  }
+
+  // Clear any stray whitespace so the box is ready for the next message.
+  chatInput.value = '';
+
+  sending = true;
+  sendBtn.disabled = true;
+
+  const assistId = uid();
+  addMessage('assistant', '', assistId, false);
+  const assistEntry = {
+    role: 'assistant', content: '', _id: assistId,
+    _versions: [], _currentVersion: 0, _streaming: true,
+  };
+  history.push(assistEntry);
+  const placeholder = messagesEl.querySelector(`[data-msg-id="${assistId}"] .msg-text`);
+  if (placeholder) placeholder.classList.add('streaming');
+
+  const body = makeContinueBody(continueIdx);
+  const { ok, text } = await streamResponse(assistId, body);
+
+  sending = false;
+  sendBtn.disabled = false;
+
+  const full = ok ? text : `Error: ${text}`;
+  assistEntry.content = full;
+  assistEntry._versions = [full];
+  assistEntry._currentVersion = 0;
+  delete assistEntry._streaming;
+  updateMsgText(assistId, full);
+
+  const el = messagesEl.querySelector(`[data-msg-id="${assistId}"]`);
+  if (el) {
+    const textEl = el.querySelector('.msg-text');
+    if (textEl) textEl.classList.remove('streaming');
+    const oldActions = el.querySelector('.msg-actions');
+    if (oldActions) oldActions.replaceWith(buildActions(assistId));
+  }
+
+  if (!currentChatId) currentChatId = uid();
+  saveCurrentChat();
+  renderSidebar();
+  renderHistoryPanel();
+}
+
 async function sendMessage() {
   const msg = chatInput.value.trim();
-  if (!msg || sending || !currentChar || !characters[currentChar]) return;
+  if (sending || !currentChar || !characters[currentChar]) return;
+  // An empty message is not a prompt. It asks the model to carry on from
+  // where its last reply stopped.
+  if (!msg) return continueLastResponse();
   chatInput.value = '';
   sending = true;
   sendBtn.disabled = true;
@@ -1626,6 +1742,18 @@ function saveCurrentChat() {
   const firstUser = history.find(m => m.role === 'user');
   const messages = history.map(m => {
     const { _streaming, ...rest } = m;
+    // Only the newest few versions are written to disk. You can regenerate
+    // as many times as you like in the session, but storing every version
+    // of every message would fill the storage quota and stop the chat
+    // saving altogether.
+    if (Array.isArray(rest._versions) && rest._versions.length > MAX_SAVED_VERSIONS) {
+      const drop = rest._versions.length - MAX_SAVED_VERSIONS;
+      return {
+        ...rest,
+        _versions: rest._versions.slice(drop),
+        _currentVersion: Math.max(0, (rest._currentVersion ?? 0) - drop),
+      };
+    }
     return rest;
   });
   upsertChat({
