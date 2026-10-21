@@ -1,0 +1,20 @@
+name = "suggestion-box"
+main = "worker.js"
+compatibility_date = "2026-10-17"
+
+# D1 Database — the anonymous suggestions.
+[[d1_databases]]
+binding = "DB"
+database_name = "suggestion-box"
+database_id = "16df4883-4067-43e1-b7b6-9ce546f785f1"
+
+# ─────────────────────────────────────────────────────────────
+# The key that guards DELETE /api/suggestions/:id is NOT here.
+# It is a Worker secret:
+#
+#     npx wrangler secret put ADMIN_KEY
+#
+# Without that secret set, the delete endpoint is open to anyone
+# who knows an id. Set it, then send:
+#     Authorization: Bearer <the value you put in the secret>
+# ─────────────────────────────────────────────────────────────
