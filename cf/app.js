@@ -121,15 +121,45 @@ function clearCredentials() {
 // Staged avatar while the guest form is open, before any account exists.
 let pendingAvatar = '';
 
+/** How long a plain API call may take before the UI gives up on it. */
+const API_TIMEOUT_MS = 30000;
+
+/**
+ * Reject if a promise takes too long.
+ *
+ * Uses Promise.race rather than AbortController, which some of the older
+ * browsers this runs on do not have. The request itself is not cancelled,
+ * but the UI stops waiting on it.
+ */
+function withTimeout(promise, ms) {
+  var timer = setTimeout(function () {}, 0);
+  var timeout = new Promise(function (_, reject) {
+    timer = setTimeout(function () {
+      reject(new Error('Request timed out'));
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).then(
+    function (v) { clearTimeout(timer); return v; },
+    function (e) { clearTimeout(timer); throw e; }
+  );
+}
+
 /** Single fetch wrapper so the session header is never forgotten. */
 async function api(path, opts = {}) {
   const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
   if (sessionId) headers.Authorization = 'Bearer ' + sessionId;
   let res;
   try {
-    res = await fetch(WORKER_URL + path, Object.assign({}, opts, { headers }));
+    res = await withTimeout(
+      fetch(WORKER_URL + path, Object.assign({}, opts, { headers })),
+      API_TIMEOUT_MS
+    );
   } catch (e) {
-    return { ok: false, status: 0, data: { error: 'network' } };
+    return {
+      ok: false,
+      status: 0,
+      data: { error: e && e.message === 'Request timed out' ? 'timeout' : 'network' },
+    };
   }
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
@@ -137,6 +167,7 @@ async function api(path, opts = {}) {
 
 const AUTH_ERRORS = {
   network: 'Could not reach the server.',
+  timeout: 'The server took too long to answer.',
   credentials_required: 'Enter a username and password.',
   bad_password: 'That password does not match.',
   username_taken: 'That username is already taken.',
@@ -596,38 +627,44 @@ async function submitCharacter() {
   const status = $('charStatus');
   status.textContent = 'Creating…';
 
-  const r = await api('/api/characters', {
-    method: 'POST',
-    body: JSON.stringify({
-      name: $('charName').value.trim(),
-      greeting: $('charGreeting').value.trim(),
-      systemPrompt: $('charPrompt').value.trim(),
-      avatar: $('charAvatar').value.trim(),
-    }),
-  });
+  try {
+    const r = await api('/api/characters', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: $('charNameInput').value.trim(),
+        greeting: $('charGreetingInput').value.trim(),
+        systemPrompt: $('charPrompt').value.trim(),
+        avatar: $('charAvatar').value.trim(),
+      }),
+    });
 
-  if (!r.ok) {
-    status.textContent = authMessage(r.data, 'Could not create the character.');
-    return;
+    if (!r.ok) {
+      status.textContent = authMessage(r.data, 'Could not create the character.');
+      return;
+    }
+
+    const c = r.data.character;
+    characters[c.id] = {
+      name: c.name,
+      greeting: c.greeting || '',
+      systemPrompt: c.systemPrompt || '',
+      avatar: c.avatar || '',
+      remote: true,
+    };
+    renderCharGrid();
+    renderSidebar();
+
+    closeOverlay('charModal');
+    ['charNameInput', 'charGreetingInput', 'charPrompt', 'charAvatar'].forEach((id) => { $(id).value = ''; });
+    updateCharPromptCount();
+
+    // Drop the visitor straight into the character they just made.
+    selectCharacter(c.id);
+  } catch (e) {
+    // Never leave the button stuck on "Creating…" — say what went wrong.
+    console.error('Create character failed:', e);
+    status.textContent = 'Could not create the character.';
   }
-
-  const c = r.data.character;
-  characters[c.id] = {
-    name: c.name,
-    greeting: c.greeting || '',
-    systemPrompt: c.systemPrompt || '',
-    avatar: c.avatar || '',
-    remote: true,
-  };
-  renderCharGrid();
-  renderSidebar();
-
-  closeOverlay('charModal');
-  ['charName', 'charGreeting', 'charPrompt', 'charAvatar'].forEach((id) => { $(id).value = ''; });
-  updateCharPromptCount();
-
-  // Drop the visitor straight into the character they just made.
-  selectCharacter(c.id);
 }
 
 function bindAuthUI() {
@@ -708,7 +745,7 @@ function openCharModal() {
   $('charStatus').textContent = '';
   updateCharPromptCount();
   openOverlay('charModal');
-  $('charName').focus();
+  $('charNameInput').focus();
 }
 let characters = {};
 let currentChar = null;
