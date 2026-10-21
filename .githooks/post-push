@@ -1,0 +1,68 @@
+#!/bin/sh
+# ============================================================
+#  post-push — deploy the changed workers, right here on the host.
+#
+#  Fired by git after a successful push to main. It runs once, deploys,
+#  and exits. There is no daemon and nothing polling in the background.
+#
+#  To push without deploying:
+#      PKAX_SKIP_DEPLOY=1 git push
+#
+#  To turn the hook off again:
+#      git config --unset core.hooksPath
+# ============================================================
+
+if [ "$PKAX_SKIP_DEPLOY" = "1" ]; then
+  echo "post-push: PKAX_SKIP_DEPLOY=1, skipping the deploy."
+  exit 0
+fi
+
+# git hands every updated ref on stdin:
+#   <local ref> <local sha> <remote ref> <remote sha>
+pushed_main=no
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    pushed_main=yes
+  fi
+done
+
+if [ "$pushed_main" != "yes" ]; then
+  echo "post-push: main was not pushed, nothing to deploy."
+  exit 0
+fi
+
+# Prefer Windows PowerShell, fall back to PowerShell 7.
+PS=powershell.exe
+if ! command -v powershell.exe >/dev/null 2>&1; then
+  PS=pwsh
+fi
+
+root=$(git rev-parse --show-toplevel)
+script="$root/scripts/deploy-workers.ps1"
+
+if [ ! -f "$script" ]; then
+  echo "post-push: $script is missing, skipping the deploy."
+  exit 0
+fi
+
+echo ""
+echo "========================================================"
+echo " post-push: deploying the workers that changed on main"
+echo "========================================================"
+
+if [ "$PKAX_DEPLOY_DRYRUN" = "1" ]; then
+  "$PS" -NoProfile -ExecutionPolicy Bypass -File "$script" -DryRun
+  exit 0
+fi
+
+"$PS" -NoProfile -ExecutionPolicy Bypass -File "$script"
+status=$?
+
+if [ $status -ne 0 ]; then
+  echo ""
+  echo "post-push: the deploy FAILED (exit $status). The push itself went through."
+  echo "            Re-run it by hand with:"
+  echo "                powershell -File scripts/deploy-workers.ps1"
+fi
+
+exit 0
