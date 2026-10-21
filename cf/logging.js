@@ -57,15 +57,4 @@ function writeLog(env, entry) {
   }
 }
 
-/** Narrow object of columns for a SELECT, to keep the query table-agnostic. */
-function summarizeResponse(res) {
-  const out = { status: res?.status ?? null };
-  try {
-    out.errorCode = res.headers.get("x-log-error") || null;
-  } catch {
-    out.errorCode = null;
-  }
-  return out;
-}
-
-export { writeLog, summarizeResponse, LOG_LEVELS, LOG_CATEGORIES };
+export { writeLog, LOG_LEVELS, LOG_CATEGORIES };

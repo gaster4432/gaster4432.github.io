@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Every meme on the site in one place.">
+<meta name="theme-color" content="#0a0a0b">
+<meta name="color-scheme" content="dark">
+<title>Memes · gaster4432</title>
+<meta property="og:title" content="Memes · gaster4432">
+<meta property="og:description" content="Every meme on the site in one place.">
+<meta property="og:url" content="https://gaster4432.github.io/memes/">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://gaster4432.github.io/images/og-banner.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="gaster4432 — projects & things">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Memes · gaster4432">
+<meta name="twitter:description" content="Every meme on the site in one place.">
+<meta name="twitter:image" content="https://gaster4432.github.io/images/og-banner.png">
+<link rel="icon" type="image/x-icon" href="/favicon-v2.ico">
+<link rel="canonical" href="https://gaster4432.github.io/memes/">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"ImageGallery","name":"Memes","url":"https://gaster4432.github.io/memes/","description":"Every meme on the site in one place."}</script>
+<link rel="stylesheet" href="/styles.css">
+<style>
+/* Reset, tokens, base typography and body background come from /styles.css.
+   Only page-specific layout lives here. */
+.gallery-head .gallery-more {
+  font-size: 12.5px;
+  color: var(--brand-3);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.gallery-head .gallery-more:hover { text-decoration: underline; }
+.welcome-lede code {
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-size: 12px;
+  background: rgba(255,255,255,0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+</style>
+</head>
+<body>
+<div class="welcome">
+  <div class="welcome-bg"></div>
+  <div class="welcome-content">
+    <div class="welcome-header">
+      <span class="welcome-badge">memes</span>
+      <h1>the gallery</h1>
+      <p class="welcome-sub">everything in <code>memes/data</code>, in one place</p>
+      <p class="welcome-lede">Drop an image into the <code>memes/data</code> folder and it shows up here on its own — the list is read through the GitHub contents API, so a new push shows up straight away.</p>
+    </div>
+
+    <section class="gallery" aria-labelledby="galleryTitle">
+      <div class="gallery-head">
+        <h2 id="galleryTitle" class="gallery-title">all memes</h2>
+        <a class="gallery-more" href="/">← home</a>
+      </div>
+      <div id="galleryGrid" class="gallery-grid">
+        <p class="gallery-status">Loading memes…</p>
+      </div>
+    </section>
+
+    <div class="welcome-footer">
+      <nav aria-label="Footer">
+        <a href="/">Home</a>
+        <a href="/pkax/">Pkax</a>
+        <a href="/cf/">PKAX web</a>
+        <a href="/starfall/">Starfall Protocol</a>
+        <a href="/sf2-piano/">SF2 Piano</a>
+        <a href="/bounce.html">Bouncing Cat</a>
+        <a href="/suggestions.html">Suggestion Box</a>
+        <a href="https://github.com/gaster4432" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://discord.gg/2vXTa5pnJb" target="_blank" rel="noopener noreferrer">Discord</a>
+      </nav>
+      <p>gaster4432 · 2026</p>
+    </div>
+  </div>
+</div>
+
+<script src="/gallery.js"></script>
+</body>
+</html>

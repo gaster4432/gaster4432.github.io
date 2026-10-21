@@ -278,8 +278,9 @@
 (function() {
   var count = parseInt(localStorage.getItem('visit_count') || '0', 10) + 1;
   localStorage.setItem('visit_count', count);
-  if (count >= 50) {
-    localStorage.setItem('visit_count', '0');
+  // Every 50th visit plays the track. The counter is never reset, so it
+  // keeps counting up across sessions.
+  if (count % 50 === 0) {
     var a = new Audio('../Balls In Yo Jaws.mp3');
     a.volume = 0.5;
     a.play().catch(function(){});
