@@ -47,6 +47,10 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# Keep the console on UTF-8 so the output does not turn into mojibake when
+# it is piped into git or a log file.
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+
 $root = (& git rev-parse --show-toplevel 2>$null)
 if (-not $root) {
     Write-Error 'Not inside a git repository.'
@@ -61,8 +65,7 @@ try {
 
     # ── Work out which folders changed ──
     if ($All) {
-        $candidates = Get-ChildItem -Directory | Select-Object -ExpandProperty Name
-        $changed = @()
+        $changed = @(Get-ChildItem -Directory | Select-Object -ExpandProperty Name)
     }
     else {
         $base = $Base
@@ -107,7 +110,7 @@ try {
     Write-Host ''
 
     if ($workers.Count -eq 0) {
-        Write-Host 'No worker changed — nothing to deploy.'
+        Write-Host 'No worker changed - nothing to deploy.'
         exit 0
     }
 
