@@ -1,0 +1,71 @@
+name: Deploy Workers
+
+# ---------------------------------------------------------------------------
+# This is the OPTIONAL GitHub Actions route. The automatic, always-on deploy
+# is the push hook on the host: .githooks/post-push -> scripts/deploy-workers.ps1
+# (run scripts/install-deploy-hook.ps1 once per clone to switch it on).
+#
+# The hook needs no daemon and no GitHub-hosted runner, so this workflow is
+# manual-only on purpose. Running it needs a self-hosted runner registered
+# for this repo and started first — otherwise the job would sit in the queue
+# forever, which is why it is not wired to `push`.
+#
+# The detection and deploy logic lives in scripts/deploy-workers.ps1 so both
+# routes behave identically.
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 'Git ref to diff against (blank = the last commit)'
+        required: false
+        default: ''
+      all:
+        description: 'Deploy every worker instead of only the changed ones'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+# One deploy at a time. A second run waits for the first to finish instead
+# of deploying the same workers twice at once.
+concurrency:
+  group: deploy-workers
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy modified workers
+    runs-on:
+      - self-hosted
+      - Windows
+      - X64
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Two commits is enough for a single-commit diff. Pass -Base to
+          # diff against something further back.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Deploy
+        shell: pwsh
+        env:
+          DEPLOY_BASE: ${{ inputs.base }}
+          DEPLOY_ALL: ${{ inputs.all }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass',
+                    '-File', 'scripts/deploy-workers.ps1')
+
+          if ($env:DEPLOY_BASE) { $args += @('-Base', $env:DEPLOY_BASE) }
+          if ($env:DEPLOY_ALL -eq 'true') { $args += '-All' }
+
+          & powershell @args
+          exit $LASTEXITCODE
