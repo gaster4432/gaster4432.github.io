@@ -21,7 +21,6 @@ const SESSION_TTL_SEC = 60 * 60 * 24 * 30; // 30 days
 const SEC_TTL_SEC = 60;                    // "give me a SEC" — one minute
 const SESSION_CACHE_SEC = 300;             // KV session cache TTL
 const MAX_PERSONA_CHARS = 2000;
-const MAX_CHARACTER_PROMPT_CHARS = 4000;
 const MAX_AVATAR_CHARS = 200000;           // room for a downscaled data URI
 const AVATAR_URL_RE = /^https?:\/\//i;
 
@@ -483,10 +482,10 @@ async function handleCreateCharacter(request, env, json, user) {
   const body = await request.json().catch(() => ({}));
   const name = String(body.name ?? "").trim().slice(0, 48);
   const greeting = String(body.greeting ?? "").trim().slice(0, 600);
-  const systemPrompt = String(body.systemPrompt ?? "").trim().slice(
-    0,
-    MAX_CHARACTER_PROMPT_CHARS
-  );
+  // The system prompt has no length limit of its own. How much of it
+  // actually reaches the model is decided by the context budget when the
+  // chat is sent, not here.
+  const systemPrompt = String(body.systemPrompt ?? "").trim();
   const avatar = String(body.avatar ?? "").trim().slice(0, 2000);
 
   if (name.length < 2) return json({ error: "name_required" }, 400);
@@ -539,7 +538,6 @@ export {
   VERIFIER_RE,
   SEC_TTL_SEC,
   MAX_PERSONA_CHARS,
-  MAX_CHARACTER_PROMPT_CHARS,
   sha256Hex,
   newSecret,
   timingSafeEqual,
