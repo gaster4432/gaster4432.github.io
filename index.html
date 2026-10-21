@@ -237,7 +237,7 @@
   </div>
 </div>
 
-<div id="homeCat" title="pspspsps" style="position:fixed;pointer-events:auto;cursor:pointer;z-index:0;font-size:24px;opacity:0.12;transition:opacity 0.3s, scale 0.15s" aria-hidden="true">🐱</div>
+<div id="homeCat" title="pspspsps" style="position:fixed;pointer-events:auto;cursor:pointer;z-index:0;font-size:24px;opacity:0.12;transition:opacity 0.3s" aria-hidden="true"><span id="homeCatFace" style="display:block;transition:transform 0.15s">🐱</span></div>
 
 <script src="/gallery.js"></script>
 
@@ -271,8 +271,9 @@
 (function() {
   var count = parseInt(localStorage.getItem('visit_count') || '0', 10) + 1;
   localStorage.setItem('visit_count', count);
-  if (count >= 50) {
-    localStorage.setItem('visit_count', '0');
+  // Every 50th visit plays the track. The counter is never reset, so the
+  // footer joke can quote the real visit number instead of a zeroed one.
+  if (count % 50 === 0) {
     var a = new Audio('Balls In Yo Jaws.mp3');
     a.volume = 0.5;
     a.play().catch(function(){});
@@ -334,8 +335,11 @@
   if (hc) {
     hc.addEventListener('click', function(e) {
       squeak(500 + Math.random() * 500);
-      hc.style.scale = '1.6';
-      setTimeout(function() { hc.style.scale = '1'; }, 160);
+      // The face is its own element so the pop is a plain transform:
+      // the outer div owns the position and is rewritten every frame.
+      var face = document.getElementById('homeCatFace');
+      if (face) face.style.transform = 'scale(1.6)';
+      setTimeout(function() { if (face) face.style.transform = 'scale(1)'; }, 160);
       miniBurst(e.clientX || window.innerWidth / 2, e.clientY || window.innerHeight / 2);
     });
   }

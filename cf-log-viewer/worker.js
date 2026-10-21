@@ -97,7 +97,21 @@ function json(data, status = 200, extraHeaders = {}) {
   });
 }
 
-function sessionCookie(token, maxAgeSec) {
+/**
+ * True when the request arrived over https.
+ *
+ * Secure cookies are refused by the browser on a plain http origin, so the
+ * flag has to follow the request rather than being hardcoded on.
+ */
+function isSecure(request) {
+  try {
+    return new URL(request.url).protocol === "https:";
+  } catch {
+    return true;
+  }
+}
+
+function sessionCookie(token, maxAgeSec, secure) {
   const bits = [
     `${COOKIE_NAME}=${token}`,
     "Path=/",
@@ -105,8 +119,9 @@ function sessionCookie(token, maxAgeSec) {
     "SameSite=Strict",
     `Max-Age=${maxAgeSec}`,
   ];
-  // Secure is omitted so the viewer also works over plain http on localhost.
-  if (new URL("https://x").protocol === "https:") bits.push("Secure");
+  // Secure over https so the cookie is never sent in the clear. A local
+  // http:// origin has to drop it or the browser refuses to store it.
+  if (secure) bits.push("Secure");
   return bits.join("; ");
 }
 
@@ -150,7 +165,7 @@ async function handleLogin(request, env) {
   attempts.delete(throttleKey(request));
   const token = await issueToken(env);
   return json({ ok: true }, 200, {
-    "Set-Cookie": sessionCookie(token, SESSION_TTL_SEC),
+    "Set-Cookie": sessionCookie(token, SESSION_TTL_SEC, isSecure(request)),
   });
 }
 
@@ -161,7 +176,7 @@ async function handleSession(request, env) {
 
 async function handleLogout(request, env) {
   return json({ ok: true }, 200, {
-    "Set-Cookie": sessionCookie("", 0),
+    "Set-Cookie": sessionCookie("", 0, isSecure(request)),
   });
 }
 

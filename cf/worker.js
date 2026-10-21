@@ -67,14 +67,6 @@ function messageTokens(content) {
   return estimateTokens(content) + PER_MESSAGE_OVERHEAD;
 }
 
-/** Tokens available for history, after system prompt + output reserve. */
-function historyBudgetFor(systemText, greetingText) {
-  const used =
-    messageTokens(systemText) +
-    (greetingText ? messageTokens(greetingText) : 0);
-  return CONTEXT_WINDOW - MAX_OUTPUT_TOKENS - TEMPLATE_OVERHEAD - Math.min(SYSTEM_RESERVE, used);
-}
-
 /**
  * Tokens left for history AND the incoming message, once system + greeting
  * are paid for. The message must be budgeted alongside history — reserving
@@ -622,8 +614,7 @@ function logRequest(request, env, url, res, started) {
   const level = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
 
   let category = "http";
-  if (url.pathname === "/api/chat") category = "chat";
-  else if (url.pathname.startsWith("/api/auth/")) category = "auth";
+  if (url.pathname.startsWith("/api/auth/")) category = "auth";
   else if (url.pathname.startsWith("/api/character")) category = "character";
   else if (url.pathname.startsWith("/api/persona")) category = "persona";
 

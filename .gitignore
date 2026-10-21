@@ -22,3 +22,7 @@ dist/
 build/
 coverage/
 /.freebuff
+
+# The Pkax installer is published as a GitHub release asset, not committed.
+# The download links point at the latest release.
+/pkax/Pkax-Setup.exe
