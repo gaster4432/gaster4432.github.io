@@ -798,6 +798,13 @@ label.btn-ghost { display: inline-flex; align-items: center; cursor: pointer; }
 .chat-input::placeholder { color: var(--sp-faint); }
 
 .btn { border: none; border-radius: 10px; font-weight: 700; cursor: pointer; }
+
+/* Header ghost buttons can carry a small icon next to their label (Branch). */
+.chat-header-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btn-ghost {

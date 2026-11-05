@@ -750,6 +750,9 @@ function openCharModal() {
 let characters = {};
 let currentChar = null;
 let currentChatId = null;
+// True while the open chat is a branch. saveCurrentChat() stamps the flag
+// onto the stored copy so the history list can tell the two apart.
+let branched = false;
 let history = [];
 let sending = false;
 let msgCounter = 0;
@@ -1062,6 +1065,7 @@ function selectCharacter(key) {
  */
 function showFreshChat() {
   currentChatId = null;
+  branched = false;
   history = [];
   messagesEl.innerHTML = '';
   inputArea.classList.remove('hidden');
@@ -1078,6 +1082,7 @@ function showFreshChat() {
 function showDiscover() {
   currentChar = null;
   currentChatId = null;
+  branched = false;
   history = [];
   charName.textContent = 'Discover';
   charGreeting.textContent = 'Pick a character to start chatting';
@@ -1925,12 +1930,38 @@ function saveCurrentChat() {
   upsertChat({
     id: currentChatId,
     character: currentChar,
-    title: firstUser ? firstUser.content.slice(0, 60) : 'Chat',
+    title: (firstUser ? firstUser.content.slice(0, 60) : 'Chat') + (branched ? ' ⎇' : ''),
+    branched,
     messages,
     updated_at: new Date().toISOString(),
   });
   saveActive();
 }
+
+/* ─── Branch ───
+ * Fork the open chat into a second, independent copy. The conversation on
+ * screen simply continues as the branch under a NEW chat id, while the
+ * original keeps the stored copy it already had — exactly the state at the
+ * moment of the fork. Nothing points at the old id any more, so neither
+ * chat can ever write into the other: every save serialises the live
+ * history into the id it is currently open under, and the two ids never
+ * meet again.
+ */
+$('branchBtn').onclick = () => {
+  if (sending) return;
+  if (!currentChar || !characters[currentChar]) return;
+  if (!currentChatId) {
+    toast('Nothing to branch yet — send a message first.');
+    return;
+  }
+  currentChatId = uid();
+  branched = true;
+  saveCurrentChat();
+  renderSidebar();
+  renderCharGrid();
+  renderHistoryPanel();
+  toast('Branched — this copy no longer follows the original.');
+};
 
 resetBtn.onclick = () => {
   if (!currentChar) return;
@@ -1993,6 +2024,7 @@ function loadChatById(chatId) {
   if (!chat) return;
   currentChatId = chat.id;
   currentChar = chat.character;
+  branched = !!chat.branched;
   history = (chat.messages || []).map(m => {
     const { _streaming, ...rest } = m;
     return {
