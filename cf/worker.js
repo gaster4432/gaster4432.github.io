@@ -1,5 +1,8 @@
 import {
   buildSystemPrompt,
+  handleChatsDelete,
+  handleChatsGet,
+  handleChatsUpsert,
   handleCreateCharacter,
   handleLogin,
   handleLogout,
@@ -82,7 +85,7 @@ function conversationRoomFor(systemText, greetingText) {
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Access-Control-Max-Age": "86400",
 };
@@ -712,6 +715,16 @@ async function route(request, env, url) {
       }
 
       return json({ error: "Not found" }, 404);
+    }
+
+    // Cloud chat backup — every route below is per-account (auth required).
+    if (url.pathname === "/api/chats") {
+      const user = await resolveSession(env, request);
+      if (!user) return json({ error: "auth_required" }, 401);
+      if (request.method === "GET") return handleChatsGet(request, env, json, user);
+      if (request.method === "DELETE") return handleChatsDelete(request, env, json, user, url);
+      if (request.method === "POST" || request.method === "PUT") return handleChatsUpsert(request, env, json, user);
+      return json({ error: "Method not allowed" }, 405);
     }
 
     if (url.pathname === "/api/persona") {

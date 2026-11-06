@@ -472,6 +472,105 @@ async function handleSessionStatus(request, env, json, user) {
   });
 }
 
+/* ---------- cloud chat backup ---------- */
+
+// One row per chat per account. payload holds the chat object exactly as
+// the client keeps it in localStorage; merges are decided on updated_at,
+// which is an ISO string and so sorts lexicographically.
+const MAX_SYNC_BATCH = 50;
+const MAX_CHAT_PAYLOAD_CHARS = 300000;
+
+async function handleChatsGet(request, env, json, user) {
+  const rows = await env.AUTH_DB.prepare(
+    "SELECT payload FROM user_chats WHERE user_id = ?"
+  )
+    .bind(user.id)
+    .all();
+
+  const chats = [];
+  for (const row of rows.results ?? []) {
+    try {
+      chats.push(JSON.parse(row.payload));
+    } catch {
+      // One corrupt row must not take the whole backup down.
+    }
+  }
+  return json({ chats });
+}
+
+/** Strip regeneration versions — the only part of a chat that can balloon. */
+function slimChatForCloud(chat) {
+  return {
+    id: chat.id,
+    character: chat.character || "",
+    title: chat.title || "",
+    branched: !!chat.branched,
+    messages: (chat.messages || []).map(({ _versions, ...rest }) => rest),
+    updated_at: chat.updated_at,
+  };
+}
+
+async function handleChatsUpsert(request, env, json, user) {
+  // The debounced client flush can fire often while chatting; this limit
+  // only exists to stop a runaway loop, not to throttle real use.
+  const rl = await rateLimit(env, `chatsync:${user.id}`, 60, 60);
+  if (!rl.ok) {
+    return json({ error: "rate_limited", retryAfter: rl.resetIn }, 429);
+  }
+
+  const body = await request.json().catch(() => ({}));
+  const incoming = Array.isArray(body.chats)
+    ? body.chats.slice(0, MAX_SYNC_BATCH)
+    : [];
+
+  const stmts = [];
+  for (const chat of incoming) {
+    if (!chat || typeof chat.id !== "string" || !Array.isArray(chat.messages)) continue;
+
+    let payload = JSON.stringify(chat);
+    if (payload.length > MAX_CHAT_PAYLOAD_CHARS) {
+      payload = JSON.stringify(slimChatForCloud(chat));
+      if (payload.length > MAX_CHAT_PAYLOAD_CHARS) continue; // hopeless — skip
+    }
+
+    // The WHERE keeps an older save from clobbering a newer one when two
+    // devices sync out of order.
+    stmts.push(
+      env.AUTH_DB.prepare(
+        `INSERT INTO user_chats (user_id, chat_id, character, title, updated_at, payload)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(user_id, chat_id) DO UPDATE SET
+           character  = excluded.character,
+           title      = excluded.title,
+           updated_at = excluded.updated_at,
+           payload    = excluded.payload
+         WHERE excluded.updated_at > user_chats.updated_at`
+      ).bind(
+        user.id,
+        String(chat.id).slice(0, 64),
+        String(chat.character || "").slice(0, 64),
+        String(chat.title || "").slice(0, 80),
+        String(chat.updated_at || new Date().toISOString()),
+        payload
+      )
+    );
+  }
+
+  if (stmts.length) await env.AUTH_DB.batch(stmts);
+  return json({ ok: true, saved: stmts.length });
+}
+
+async function handleChatsDelete(request, env, json, user, url) {
+  const id = String(url.searchParams.get("id") || "").slice(0, 64);
+  if (!id) return json({ error: "id required" }, 400);
+  await env.AUTH_DB.prepare(
+    "DELETE FROM user_chats WHERE user_id = ?1 AND chat_id = ?2"
+  )
+    .bind(user.id, id)
+    .run();
+  return json({ ok: true });
+}
+
 /* ---------- character creation ---------- */
 
 // Writes into the EXISTING characters table. Visibility stays global —
@@ -558,4 +657,7 @@ export {
   handleProfileUpdate,
   sanitizeAvatar,
   handleCreateCharacter,
+  handleChatsGet,
+  handleChatsUpsert,
+  handleChatsDelete,
 };

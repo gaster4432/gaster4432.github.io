@@ -36,3 +36,16 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits(window_start);
+
+-- Cloud chat backup. One row per chat per account; payload is the chat
+-- object exactly as the client keeps it in localStorage. Re-running this
+-- file is a no-op.
+CREATE TABLE IF NOT EXISTS user_chats (
+  user_id    TEXT NOT NULL,
+  chat_id    TEXT NOT NULL,
+  character  TEXT NOT NULL DEFAULT '',
+  title      TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  payload    TEXT NOT NULL,
+  PRIMARY KEY (user_id, chat_id)
+);
