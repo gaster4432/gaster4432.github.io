@@ -200,7 +200,9 @@ body.hosting { padding-bottom: 130px; }
  *   host   POST {a:'answer', sdp+ice}       — complete blob, no trickle
  *   joiner GET  (long-poll) → answer        — done. Worker is never used again.
  * ───────────────────────────────────────────────────────────── */
-const SIGNAL = 'https://peek-signal.archlinuxkid99.workers.dev';
+// Signaling mailbox — a tiny Node server on my own box (see peek-node/README).
+// Must be HTTPS: the page itself is https, so browsers block plain-HTTP calls.
+const SIGNAL = 'https://peek-signal.duckdns.org:25789'; // ← match your DuckDNS subdomain
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I/1, O/0 lookalikes
 
 const $ = id => document.getElementById(id);

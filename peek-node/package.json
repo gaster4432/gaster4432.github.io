@@ -1,0 +1,13 @@
+{
+  "name": "peek-signal-node",
+  "version": "1.0.0",
+  "description": "Peek screen-share signaling mailbox — plain Node, zero dependencies",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -6,14 +6,15 @@
 // ICE candidates inline (non-trickle), so after two deliveries the worker
 // is never contacted again — video flows peer-to-peer.
 //
-// "Waiting" costs nothing: the host holds ONE long-poll request open and
-// the DO answers it the moment the joiner's offer lands. No intervals, no
-// keepalives, no WebSockets. When both sides stop talking the DO is evicted
-// and the room ceases to exist, which is exactly the desired lifetime.
+// STORAGE IS THE ONLY SOURCE OF TRUTH. A long-poll that waits in memory can
+// miss a write delivered to a sibling instance of the same DO (observed in
+// production: the parked request never saw the wake-up), so the waiting side
+// polls storage itself inside one held-open request. Memory is just a cache.
 // ==========================================
 
-const FRESH_MS = 6000;   // a slot is "taken" while its owner touched it this recently
-const PARK_MS = 20000;   // max time a long-poll waits before saying "nothing yet"
+const FRESH_MS = 40000;  // how long a departed peer's claim lingers
+const PARK_MS = 15000;   // max time one long-poll waits before answering "nothing yet"
+const POLL_EVERY = 400;  // storage poll cadence inside a parked request
 
 const CODE_RE = /^[A-Z0-9]{4,10}$/;
 const MAX_SDP_CHARS = 65536;
@@ -37,31 +38,51 @@ function json(data, status = 200) {
   });
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 export class Room {
   constructor(state) {
-    this.reset();
+    this.ctx = state;
+    this.nonce = Math.random().toString(36).slice(2, 8); // debug: instance identity
   }
 
-  reset() {
-    this.room = {
+  async load() {
+    return (await this.ctx.storage.get("room")) || {
       hostSid: null, hostSeen: 0,
       joinerSid: null, joinerSeen: 0,
       offer: null, answer: null,
-      waiters: new Set(),
     };
   }
 
-  /** Resolve every parked long-poll; they re-check the mailbox themselves. */
-  wake() {
-    for (const resolve of this.room.waiters) resolve();
-    this.room.waiters.clear();
+  /** One-shot take of this role's payload, storage first. */
+  async take(role, R) {
+    const key = role === "host" ? "offer" : "answer";
+    if (R[key]) {
+      const p = R[key];
+      R[key] = null;
+      await this.ctx.storage.put("room", R);
+      return p;
+    }
+    const stored = await this.ctx.storage.get("room");
+    if (stored && stored[key]) {
+      const p = stored[key];
+      stored[key] = null;
+      await this.ctx.storage.put("room", stored);
+      return p;
+    }
+    return null;
   }
 
-  park() {
-    return new Promise((resolve) => {
-      this.room.waiters.add(resolve);
-      setTimeout(resolve, PARK_MS);
-    });
+  /** Hold the request open, watching storage, until the payload shows up. */
+  async watch(role) {
+    const key = role === "host" ? "offer" : "answer";
+    const deadline = Date.now() + PARK_MS;
+    while (Date.now() < deadline) {
+      await sleep(POLL_EVERY);
+      const stored = await this.ctx.storage.get("room");
+      if (stored && stored[key]) return true;
+    }
+    return false;
   }
 
   async fetch(request) {
@@ -72,26 +93,32 @@ export class Room {
       return json({ error: "bad_request" }, 400);
     }
 
-    const R = this.room;
+    const R = await this.load();
     const now = Date.now();
 
     /* ── deliveries ── */
     if (request.method === "POST") {
       const body = await request.json().catch(() => ({}));
-      const data = JSON.stringify(body.data ?? "");
-      if (data.length > MAX_SDP_CHARS) return json({ error: "too_big" }, 413);
+      const data = body.data ?? null;
+      if (data != null && JSON.stringify(data).length > MAX_SDP_CHARS) {
+        return json({ error: "too_big" }, 413);
+      }
 
       if (body.a === "create") {
-        // A fresh different host may take over (host refreshed the tab);
-        // a live one may not (two host tabs open).
+        // A departed host's claim expires after FRESH_MS, so a refreshed tab
+        // can take the room back; a live second host may not steal it.
         if (R.hostSid && R.hostSid !== sid && now - R.hostSeen < FRESH_MS) {
           return json({ error: "host_already" }, 409);
         }
-        const reclaim = R.hostSid !== sid;
-        this.reset();
+        const reclaim = !!R.hostSid && R.hostSid !== sid;
         R.hostSid = sid;
         R.hostSeen = now;
-        return json({ ok: true, reclaimed: reclaim });
+        R.joinerSid = null;
+        R.joinerSeen = 0;
+        R.offer = null;
+        R.answer = null;
+        await this.ctx.storage.put("room", R);
+        return json({ ok: true, reclaimed: reclaim, nonce: this.nonce });
       }
 
       if (body.a === "offer") {
@@ -101,63 +128,61 @@ export class Room {
         }
         R.joinerSid = sid;
         R.joinerSeen = now;
-        R.offer = body.data;
+        R.offer = data;
         R.answer = null; // a new offer invalidates any stale answer
-        R.hostSeen = Math.max(R.hostSeen, 0);
-        this.wake();
-        return json({ ok: true });
+        await this.ctx.storage.put("room", R);
+        return json({ ok: true, nonce: this.nonce });
       }
 
       if (body.a === "answer") {
         if (R.hostSid !== sid) return json({ error: "not_host" }, 403);
         R.hostSeen = now;
-        R.answer = body.data;
-        this.wake();
-        return json({ ok: true });
+        R.answer = data;
+        await this.ctx.storage.put("room", R);
+        return json({ ok: true, nonce: this.nonce });
       }
 
       if (body.a === "close") {
-        this.reset();
-        return json({ ok: true });
+        await this.ctx.storage.delete("room");
+        return json({ ok: true, nonce: this.nonce });
       }
 
       return json({ error: "bad_action" }, 400);
     }
 
-    /* ── long-poll ── */
+    /* ── long-poll: hold one request open, watching storage, until the
+     * counterpart's blob lands (or PARK_MS passes → "try again") ── */
     if (role === "host") {
       if (R.hostSid !== sid) return json({ error: "unknown_host" }, 404);
       R.hostSeen = now;
-      if (R.offer) {
-        const offer = R.offer;
-        R.offer = null;
-        return json({ t: "offer", data: offer });
+      await this.ctx.storage.put("room", R); // refresh the claim while we wait
+
+      let payload = await this.take(role, R);
+      let polls = 0;
+      if (!payload) {
+        await this.watch(role);
+        polls = 1;
+        payload = await this.take(role, R);
       }
-      await this.park();
-      if (R.offer) {
-        const offer = R.offer;
-        R.offer = null;
-        return json({ t: "offer", data: offer });
-      }
-      return json({ t: "continue" });
+      if (payload) return json({ t: "offer", data: payload });
+      return json({ t: "continue", polls, nonce: this.nonce });
     }
 
     // joiner
     if (!R.hostSid || now - R.hostSeen > FRESH_MS) return json({ error: "no_host" }, 404);
-    if (R.joinerSid && R.joinerSid !== sid) return json({ error: "unknown_joiner" }, 404);
+    if (R.joinerSid && R.joinerSid !== sid && now - R.joinerSeen < FRESH_MS) {
+      return json({ error: "unknown_joiner" }, 404);
+    }
     R.joinerSeen = now;
-    if (R.answer) {
-      const answer = R.answer;
-      R.answer = null;
-      return json({ t: "answer", data: answer });
+    await this.ctx.storage.put("room", R);
+
+    let payload = await this.take(role, R);
+    if (!payload) {
+      await this.watch(role);
+      payload = await this.take(role, R);
     }
-    await this.park();
-    if (R.answer) {
-      const answer = R.answer;
-      R.answer = null;
-      return json({ t: "answer", data: answer });
-    }
-    return json({ t: "continue" });
+    if (payload) return json({ t: "answer", data: payload });
+    return json({ t: "continue", nonce: this.nonce });
   }
 }
 

@@ -1,0 +1,75 @@
+# peek-signal-node
+
+The signaling mailbox for [Peek](../peek/) — screen sharing with a code.
+
+Zero dependencies. Node 18+. Two files: `mailbox.js` (room logic) and
+`server.js` (HTTP/HTTPS plumbing + CORS).
+
+## Run it
+
+```sh
+node server.js                 # plain HTTP on 0.0.0.0:25789
+```
+
+With TLS (for real browser use — see below):
+
+```sh
+PORT=25789 TLS_KEY=./key.pem TLS_CERT=./fullchain.pem node server.js
+```
+
+## Protocol (for the curious)
+
+Everything is `/room?code=<CODE>&role=host|joiner&sid=<random>`:
+
+| Call | Meaning |
+|---|---|
+| `POST {a:'create'}` | host claims the code |
+| `GET` (long-poll, ≤15s) | host waits for the joiner's offer |
+| `POST {a:'offer', data:{sdp…}}` | joiner deposits a complete offer |
+| `POST {a:'answer', data:{sdp…}}` | host deposits a complete answer |
+| `GET` (long-poll) | joiner collects the answer — done, server unused after this |
+| `POST {a:'close'}` | host frees the code |
+
+SDP blobs carry their ICE candidates inline (non-trickle), so the mailbox
+only ever sees two deliveries per connection. `GET /ice` returns the STUN
+list. `GET /` is a health check.
+
+## HTTPS on a single non-standard port
+
+The Peek page is served from `https://gaster4432.github.io`, so the browser
+refuses to talk to a plain-HTTP API (mixed content). The container only has
+port 25789 — no 80, no 443 — which knocks out Let's Encrypt's HTTP-01 and
+TLS-ALPN-01 challenges. **DNS-01 is the only one left, and DuckDNS makes it
+free:**
+
+1. Create a subdomain at [duckdns.org](https://www.duckdns.org) (say,
+   `peek-signal`), and point its IP at the container's public IP.
+2. Install [acme.sh](https://github.com/acmesh-official/acme.sh) on the
+   container and issue a cert using the DuckDNS DNS challenge — no ports
+   involved:
+
+   ```sh
+   curl https://get.acme.sh | sh -s email=you@example.com
+   export DuckDNS_Token=<your duckdns token>
+   ~/.acme.sh/acme.sh --issue --dns dns_duckdns -d peek-signal.duckdns.org
+   ~/.acme.sh/acme.sh --install-cert -d peek-signal.duckdns.org \
+     --key-file ./key.pem --fullchain-file ./fullchain.pem
+   ```
+
+   acme.sh installs its own cron job, so renewals re-write those two files
+   automatically — restart the server after a renewal (or point the env vars
+   at acme.sh's live directory and skip the copy).
+
+3. Start the server with `TLS_KEY` / `TLS_CERT` set.
+4. Make sure `SIGNAL` at the top of [`peek/index.html`](../peek/index.html)
+   matches your subdomain, and that the browser can reach
+   `https://peek-signal.duckdns.org:25789/` (firewall/port-forward on the
+   host, if any).
+
+## Notes
+
+- Rooms live in RAM. A restart clears them; hosts just re-share their codes.
+- The room code is the only "auth" — it's 6 characters from a 32-letter
+  alphabet (~1e9), unguessable enough for helping a friend, not for hostile
+  environments.
+- The old Cloudflare worker (`peek-worker/`) is retired; this replaces it.
