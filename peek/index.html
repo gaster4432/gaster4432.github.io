@@ -141,7 +141,7 @@ body.hosting { padding-bottom: 130px; }
         <p>Got a code from someone? Type it in and watch their screen.</p>
       </span>
     </button>
-    <p class="hint" style="text-align:center">The connection is direct browser-to-browser over WebRTC. The little server in the middle only passes the handshake, then it's just two computers talking.</p>
+    <p class="hint" style="text-align:center">The connection is direct browser-to-browser over WebRTC. The server's only job is holding your code during the handshake — after that it's just two computers talking.</p>
   </div>
 
   <!-- ── host ── -->
@@ -191,29 +191,37 @@ body.hosting { padding-bottom: 130px; }
 
 <script>
 'use strict';
-const SIGNAL_HTTP = 'https://peek-signal.archlinuxkid99.workers.dev';
-const SIGNAL_WS = 'wss://peek-signal.archlinuxkid99.workers.dev/ws';
+/* ─────────────────────────────────────────────────────────────
+ * Handshake shape (joiner-initiated, one shot per connection):
+ *
+ *   host   POST {a:'create'}                — claims the code, then waits
+ *   host   GET  (one long-poll, held open)  — wakes the instant the offer lands
+ *   joiner POST {a:'offer',  sdp+ice}       — complete blob, no trickle
+ *   host   POST {a:'answer', sdp+ice}       — complete blob, no trickle
+ *   joiner GET  (long-poll) → answer        — done. Worker is never used again.
+ * ───────────────────────────────────────────────────────────── */
+const SIGNAL = 'https://peek-signal.archlinuxkid99.workers.dev';
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I/1, O/0 lookalikes
 
 const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /* ── screens ── */
 function show(panel) {
-  ['menu', 'hostView', 'joinView'].forEach(p => $(p).classList.toggle('show', p === panel));
-  if (panel !== 'menu') $('menu').style.display = 'none';
-  else $('menu').style.display = '';
+  $('menu').style.display = panel === 'menu' ? '' : 'none';
+  ['hostView', 'joinView'].forEach(p => $(p).classList.toggle('show', p === panel));
   document.body.classList.toggle('hosting', panel === 'hostView');
   if (panel !== 'joinView') $('vidWrap').classList.remove('show');
 }
 
-/* ── shared state ── */
-let ws = null;
-let pc = null;
-let role = null;
-let keepaliveT = null;
+/* ── state ── */
+let role = null;          // 'host' | 'joiner'
+let roomCode = null;
+let mySid = null;
+let pc = null;            // RTCPeerConnection
+let localStream = null;   // host only
+let polling = false;      // long-poll loop guard
 let statsT = null;
-let pendingIce = [];        // candidates that arrive before the remote description
-let localStream = null;     // host only
 
 function setStatus(el, textEl, text, cls) {
   if (textEl) textEl.textContent = text;
@@ -227,73 +235,172 @@ function genCode() {
   return Array.from(bytes, b => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
 }
 
+function genSid() {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function iceServers() {
   try {
-    const r = await fetch(SIGNAL_HTTP + '/ice');
+    const r = await fetch(SIGNAL + '/ice');
     const d = await r.json();
     if (d && Array.isArray(d.iceServers) && d.iceServers.length) return d.iceServers;
   } catch (e) {}
-  // Offline fallback — same list the worker would have returned.
   return [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }];
 }
 
-/* ── websocket ── */
-function connect(roomCode, roomRole, onClose) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const sock = new WebSocket(`${SIGNAL_WS}?code=${roomCode}&role=${roomRole}`);
-    sock.onopen = () => { settled = true; resolve(sock); };
-    sock.onmessage = ev => { try { handleSignal(JSON.parse(ev.data)); } catch (e) {} };
-    sock.onclose = ev => {
-      clearInterval(keepaliveT);
-      if (!settled) {
-        settled = true;
-        const reasons = { 4404: 'No room with that code — did the host stop sharing?', 4409: 'That room is busy.' };
-        reject(new Error(reasons[ev.code] || 'Could not reach the signaling server.'));
-        return;
-      }
-      onClose && onClose(ev.code);
-    };
-    sock.onerror = () => {};
-    // The WS goes silent once the WebRTC handshake is done — keep the
-    // hibernating room awake so late "peer_left" notices still arrive.
-    keepaliveT = setInterval(() => {
-      if (sock.readyState === 1) sock.send(JSON.stringify({ t: 'ping' }));
-    }, 25000);
+/* Wait until ICE gathering finishes so the SDP we send is complete —
+ * no trickle, so the mailbox only ever sees one blob per side. Chrome
+ * occasionally never fires 'complete' on a slow STUN timeout, hence the cap. */
+function waitForIce(pconn, timeoutMs = 3000) {
+  return new Promise(resolve => {
+    if (pconn.iceGatheringState === 'complete') return resolve();
+    const done = () => { clearTimeout(timer); pconn.removeEventListener('icegatheringstatechange', onChange); resolve(); };
+    const onChange = () => { if (pconn.iceGatheringState === 'complete') done(); };
+    const timer = setTimeout(done, timeoutMs);
+    pconn.addEventListener('icegatheringstatechange', onChange);
   });
 }
 
-/* ── peer connection plumbing (both sides) ── */
-function newPC(ice) {
-  const p = new RTCPeerConnection({ iceServers: ice });
-  p.onicecandidate = e => {
-    if (e.candidate && ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'ice', data: e.candidate.toJSON() }));
-  };
-  p.onconnectionstatechange = () => onPcState(p.connectionState);
-  return p;
+/* ── mailbox calls ── */
+async function post(action, data) {
+  const r = await fetch(`${SIGNAL}/room?code=${roomCode}&role=${role}&sid=${mySid}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ a: action, data }),
+  });
+  return r.json().catch(() => ({ error: 'network' }));
 }
 
-function queueOrApplyIce(cand) {
-  if (pc && pc.remoteDescription && pc.remoteDescription.type) {
-    pc.addIceCandidate(cand).catch(() => {});
-  } else {
-    pendingIce.push(cand);
+async function longPollOnce() {
+  const r = await fetch(`${SIGNAL}/room?code=${roomCode}&role=${role}&sid=${mySid}`);
+  return r.json().catch(() => ({ error: 'network' }));
+}
+
+const ERRORS = {
+  no_host: 'No room with that code — is your friend sharing?',
+  room_full: 'That room is busy — the host can have one viewer.',
+  host_already: 'Another host tab is open — close it or wait a few seconds.',
+  unknown_host: 'Room expired — start the share again.',
+  unknown_joiner: 'Session changed — join again.',
+  not_host: 'Session mismatch — start the share again.',
+  network: 'Could not reach the signaling server.',
+  bad_code: 'That code looks off.',
+};
+
+/* ───────────────────────── host ───────────────────────── */
+
+async function startHost() {
+  role = 'host';
+  mySid = genSid();
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 15, max: 30 } },
+      audio: true,
+    });
+  } catch (eFirst) {
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true }); // Firefox/silent screens
+    } catch (e) {
+      setStatus($('hostStatus'), $('hostStatusText'), 'screen pick cancelled', 'bad');
+      role = null;
+      return;
+    }
+  }
+  localStream = stream;
+  stream.getVideoTracks()[0].addEventListener('ended', stopHost);
+
+  $('previewVideo').srcObject = stream;
+  $('previewBox').classList.add('show');
+  show('hostView');
+  $('codeOut').textContent = '······';
+  setStatus($('hostStatus'), $('hostStatusText'), 'getting a code…', 'wait');
+
+  roomCode = genCode();
+  let created = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    created = await post('create');
+    if (!created.error) break;
+    if (created.error === 'host_already') { await sleep(1500); continue; }
+    break;
+  }
+  if (created.error) {
+    setStatus($('hostStatus'), $('hostStatusText'), ERRORS[created.error] || created.error, 'bad');
+    return;
+  }
+
+  $('codeOut').textContent = roomCode;
+  setStatus($('hostStatus'), $('hostStatusText'), 'waiting for your friend…', 'wait');
+  hostLoop();
+}
+
+/* One long-poll at a time. Each offer that lands = a friend hitting Join:
+ * build a complete answer, drop it in the mailbox, and go back to waiting
+ * so a refreshed joiner can reconnect the same way. */
+async function hostLoop() {
+  polling = true;
+  while (polling && role === 'host' && roomCode) {
+    let d;
+    try {
+      d = await longPollOnce();
+    } catch (e) {
+      await sleep(2000);
+      continue;
+    }
+    if (d.error) {
+      // unknown_host: the DO evicted us (tab slept). Re-claim and keep going.
+      if (d.error === 'unknown_host') {
+        const again = await post('create');
+        if (again.error) { setStatus($('hostStatus'), $('hostStatusText'), ERRORS[again.error] || again.error, 'bad'); await sleep(2000); }
+        continue;
+      }
+      setStatus($('hostStatus'), $('hostStatusText'), ERRORS[d.error] || d.error, 'bad');
+      await sleep(2000);
+      continue;
+    }
+    if (d.t === 'offer') {
+      await answerOffer(d.data);
+    }
+    // d.t === 'continue' → nothing yet, loop and hold another request open
+  }
+  polling = false;
+}
+
+async function answerOffer(offer) {
+  if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+  setStatus($('hostStatus'), $('hostStatusText'), 'friend is connecting…', 'wait');
+
+  try {
+    pc = new RTCPeerConnection({ iceServers: await iceServers() });
+    pc.onconnectionstatechange = () => {
+      const s = pc && pc.connectionState;
+      if (s === 'connected') setStatus($('hostStatus'), $('hostStatusText'), 'LIVE — your friend sees your screen', 'live');
+      if (s === 'failed') setStatus($('hostStatus'), $('hostStatusText'), 'connection failed — your friend can refresh to retry', 'bad');
+    };
+    localStream.getTracks().forEach(t => {
+      const sender = pc.addTrack(t, localStream);
+      if (t.kind === 'video') tuneSender(sender);
+    });
+
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await waitForIce(pc);
+
+    const sent = await post('answer', pc.localDescription);
+    if (sent.error) setStatus($('hostStatus'), $('hostStatusText'), ERRORS[sent.error] || sent.error, 'bad');
+  } catch (e) {
+    setStatus($('hostStatus'), $('hostStatusText'), 'handshake failed — friend should refresh', 'bad');
   }
 }
 
-async function flushIce() {
-  const q = pendingIce;
-  pendingIce = [];
-  for (const c of q) {
-    try { await pc.addIceCandidate(c); } catch (e) {}
-  }
-}
-
-/* Screen content barely changes between frames — tell the encoder to keep
-   resolution (sharp text) instead of framerate, and cap the rate so a 4K
-   monitor doesn't try to saturate the friend's upload. */
-function tuneSender(sender, isVideo) {
-  if (!isVideo) return;
+/* Screen content barely changes between frames — keep resolution (sharp
+ * text) over framerate, and cap the rate so a 4K monitor doesn't try to
+ * saturate the viewer's connection. */
+function tuneSender(sender) {
   try {
     if (sender.track) sender.track.contentHint = 'detail';
     const p = sender.getParameters();
@@ -301,6 +408,100 @@ function tuneSender(sender, isVideo) {
     p.encodings = [{ maxBitrate: 2500000, maxFramerate: 15 }];
     sender.setParameters(p).catch(() => {});
   } catch (e) {}
+}
+
+function stopHost() { teardown(); }
+
+/* ───────────────────────── joiner ───────────────────────── */
+
+async function startJoin() {
+  const code = $('codeInput').value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{4,10}$/.test(code)) {
+    setStatus($('joinStatus'), $('joinStatusText'), 'That code looks off — it\'s 6 letters/numbers.', 'bad');
+    return;
+  }
+  role = 'joiner';
+  roomCode = code;
+  mySid = genSid();
+  $('joinBtn').disabled = true;
+  setStatus($('joinStatus'), $('joinStatusText'), 'knocking…', 'wait');
+
+  try {
+    pc = new RTCPeerConnection({ iceServers: await iceServers() });
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+    pc.ontrack = e => {
+      $('remoteVideo').srcObject = e.streams[0];
+      $('vidWrap').classList.add('show');
+      setStatus($('liveStatus'), $('liveStatusText'), 'connecting…', 'wait');
+      watchStats();
+    };
+    pc.onconnectionstatechange = () => {
+      const s = pc && pc.connectionState;
+      if (s === 'connected') setStatus($('liveStatus'), $('liveStatusText'), 'live', 'live');
+      if (s === 'failed') setStatus($('liveStatus'), $('liveStatusText'), 'connection failed — hit Join again', 'bad');
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await waitForIce(pc);
+
+    let sent = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      sent = await post('offer', pc.localDescription);
+      if (!sent.error) break;
+      if (sent.error === 'room_full') { await sleep(1500); continue; }
+      break;
+    }
+    if (sent.error) {
+      $('joinBtn').disabled = false;
+      setStatus($('joinStatus'), $('joinStatusText'), ERRORS[sent.error] || sent.error, 'bad');
+      return;
+    }
+
+    setStatus($('joinStatus'), $('joinStatusText'), 'waiting for the host to answer…', 'wait');
+    joinLoop();
+  } catch (e) {
+    $('joinBtn').disabled = false;
+    setStatus($('joinStatus'), $('joinStatusText'), 'could not start — ' + (e.message || e), 'bad');
+  }
+}
+
+async function joinLoop() {
+  polling = true;
+  const deadline = Date.now() + 45000;
+  while (polling && role === 'joiner' && roomCode) {
+    if (pc && (pc.connectionState === 'connected')) { polling = false; break; }
+    if (Date.now() > deadline) {
+      setStatus($('joinStatus'), $('joinStatusText'), 'the host never answered — they should check their tab', 'bad');
+      $('joinBtn').disabled = false;
+      break;
+    }
+    let d;
+    try {
+      d = await longPollOnce();
+    } catch (e) {
+      await sleep(2000);
+      continue;
+    }
+    if (d.error) {
+      setStatus($('joinStatus'), $('joinStatusText'), ERRORS[d.error] || d.error, 'bad');
+      $('joinBtn').disabled = false;
+      break;
+    }
+    if (d.t === 'answer') {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(d.data));
+        setStatus($('joinStatus'), $('joinStatusText'), 'connecting…', 'wait');
+      } catch (e) {
+        setStatus($('joinStatus'), $('joinStatusText'), 'handshake failed — hit Join again', 'bad');
+        $('joinBtn').disabled = false;
+      }
+      break; // done with the worker, forever
+    }
+    // 'continue' → keep holding one request open
+  }
+  polling = false;
 }
 
 /* "DIRECT" vs "RELAY" — the user cares that this is actually peer-to-peer. */
@@ -328,141 +529,15 @@ async function watchStats() {
   }, 2000);
 }
 
-/* ── signaling messages ── */
-function handleSignal(msg) {
-  if (msg.t === 'peer_joined') { if (role === 'host') hostOffer(); }
-  if (msg.t === 'offer' && role === 'joiner') joinAnswer(msg.data);
-  if (msg.t === 'answer' && role === 'host') {
-    if (pc) pc.setRemoteDescription(new RTCSessionDescription(msg.data)).then(flushIce).catch(() => {});
-  }
-  if (msg.t === 'ice') queueOrApplyIce(new RTCIceCandidate(msg.data));
-  if (msg.t === 'peer_left') onPeerLeft();
-}
-
-function onPeerLeft() {
-  if (role === 'host') {
-    if (pc) { try { pc.close(); } catch (e) {} pc = null; }
-    setStatus($('hostStatus'), $('hostStatusText'), 'friend left — waiting for a new connection', 'wait');
-    // The room stays open: the next joiner with the code gets a fresh offer.
-  } else {
-    teardown(false);
-    setStatus($('joinStatus'), $('joinStatusText'), 'the host closed the share', 'bad');
-  }
-}
-
-/* ── host ── */
-async function startHost() {
-  role = 'host';
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: 15, max: 30 } },
-      audio: true,
-    });
-  } catch (eFirst) {
-    try {
-      // Firefox and some system screens refuse audio capture — try silent.
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-    } catch (e) {
-      setStatus($('hostStatus'), $('hostStatusText'), 'screen pick cancelled', 'bad');
-      role = null;
-      return;
-    }
-  }
-  localStream = stream;
-  // If the user hits the browser's own "stop sharing" bar, end cleanly.
-  stream.getVideoTracks()[0].addEventListener('ended', stopHost);
-
-  $('previewVideo').srcObject = stream;
-  $('previewBox').classList.add('show');
-  show('hostView');
-  $('codeOut').textContent = '······';
-  setStatus($('hostStatus'), $('hostStatusText'), 'getting a code…', 'wait');
-
-  const code = genCode();
-  try {
-    ws = await connect(code, 'host', onWsClosed);
-  } catch (e) {
-    setStatus($('hostStatus'), $('hostStatusText'), e.message, 'bad');
-    return;
-  }
-  $('codeOut').textContent = code;
-  setStatus($('hostStatus'), $('hostStatusText'), 'waiting for your friend…', 'wait');
-}
-
-async function hostOffer() {
-  setStatus($('hostStatus'), $('hostStatusText'), 'friend connected — negotiating…', 'wait');
-  if (pc) { try { pc.close(); } catch (e) {} }
-  pendingIce = [];
-  pc = newPC(await iceServers());
-  localStream.getTracks().forEach(t => tuneSender(pc.addTrack(t, localStream), t.kind === 'video'));
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  ws.send(JSON.stringify({ t: 'offer', data: pc.localDescription }));
-}
-
-/* ── join ── */
-async function startJoin() {
-  const code = $('codeInput').value.trim().toUpperCase();
-  if (!/^[A-Z0-9]{4,10}$/.test(code)) {
-    setStatus($('joinStatus'), $('joinStatusText'), 'That code looks off — it\'s 6 letters/numbers.', 'bad');
-    return;
-  }
-  role = 'joiner';
-  $('joinBtn').disabled = true;
-  setStatus($('joinStatus'), $('joinStatusText'), 'knocking…', 'wait');
-  try {
-    ws = await connect(code, 'joiner', onWsClosed);
-  } catch (e) {
-    $('joinBtn').disabled = false;
-    setStatus($('joinStatus'), $('joinStatusText'), e.message, 'bad');
-    return;
-  }
-  $('joinBtn').disabled = false;
-  setStatus($('joinStatus'), $('joinStatusText'), 'connected to room — waiting for video…', 'wait');
-}
-
-async function joinAnswer(offer) {
-  pendingIce = [];
-  pc = newPC(await iceServers());
-  pc.ontrack = e => {
-    $('remoteVideo').srcObject = e.streams[0];
-    $('vidWrap').classList.add('show');
-    setStatus($('liveStatus'), $('liveStatusText'), 'connecting…', 'wait');
-    watchStats();
-  };
-  await pc.setRemoteDescription(new RTCSessionDescription(offer));
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  ws.send(JSON.stringify({ t: 'answer', data: pc.localDescription }));
-  flushIce();
-}
-
-function onPcState(state) {
-  if (state === 'connected') {
-    if (role === 'host') setStatus($('hostStatus'), $('hostStatusText'), 'LIVE — your friend can see your screen', 'live');
-    else setStatus($('liveStatus'), $('liveStatusText'), 'live', 'live');
-  } else if (state === 'failed') {
-    if (role === 'host') setStatus($('hostStatus'), $('hostStatusText'), 'connection failed — friend may need to rejoin', 'bad');
-    else setStatus($('liveStatus'), $('liveStatusText'), 'connection failed', 'bad');
-  }
-}
-
 /* ── teardown ── */
-function onWsClosed(code) {
-  // Unexpected disconnects (host refreshed, network blip). teardown() already
-  // ran if this was user-initiated; this covers the surprise case.
-  if (role === 'host' && localStream) {
-    setStatus($('hostStatus'), $('hostStatusText'), 'signaling lost — share ended', 'bad');
-  }
-}
-
-function teardown(userInitiated) {
-  clearInterval(keepaliveT);
+function teardown() {
+  polling = false;
   clearInterval(statsT);
-  pendingIce = [];
   if (pc) { try { pc.close(); } catch (e) {} pc = null; }
-  if (ws) { try { ws.close(); } catch (e) {} ws = null; }
+  if (roomCode && mySid && role === 'host') {
+    // Best-effort: hand the DO back so the code frees up instantly.
+    try { fetch(`${SIGNAL}/room?code=${roomCode}&role=host&sid=${mySid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a: 'close' }), keepalive: true }); } catch (e) {}
+  }
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   $('previewVideo').srcObject = null;
   $('previewBox').classList.remove('show');
@@ -471,22 +546,21 @@ function teardown(userInitiated) {
   document.body.classList.remove('hosting');
   if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
   role = null;
+  roomCode = null;
   show('menu');
   $('joinStatus').hidden = true;
   $('joinBtn').disabled = false;
   $('codeInput').value = '';
 }
 
-function stopHost() { teardown(true); }
-
 /* ── wiring ── */
 $('optHost').onclick = startHost;
 $('optJoin').onclick = () => { show('joinView'); $('codeInput').focus(); };
 $('joinBtn').onclick = startJoin;
 $('stopBtn').onclick = stopHost;
-$('leaveBtn').onclick = () => teardown(true);
-$('hostBack').onclick = () => { if (localStream) stopHost(); else show('menu'); };
-$('joinBack').onclick = () => { if (ws) teardown(true); else show('menu'); };
+$('leaveBtn').onclick = () => teardown();
+$('hostBack').onclick = () => stopHost();
+$('joinBack').onclick = () => teardown();
 $('copyBtn').onclick = () => {
   navigator.clipboard.writeText($('codeOut').textContent).then(() => {
     $('copyBtn').textContent = 'Copied!';
@@ -506,7 +580,6 @@ $('codeInput').addEventListener('input', e => {
   e.target.value = e.target.value.toUpperCase().replace(new RegExp('[^' + CODE_ALPHABET + ']', 'g'), '').slice(0, 6);
 });
 $('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') startJoin(); });
-window.addEventListener('beforeunload', () => { if (ws) { try { ws.close(); } catch (e) {} } });
 </script>
 </body>
 </html>

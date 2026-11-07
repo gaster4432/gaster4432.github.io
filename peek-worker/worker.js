@@ -1,20 +1,23 @@
 // ==========================================
-// Peek — WebRTC signaling relay
+// Peek — WebRTC signaling mailbox
 //
-// Screen media never touches this worker. It pairs exactly two browsers per
-// room code and ferries offer/answer/ICE text between them over WebSockets;
-// the video itself flows peer-to-peer after the STUN handshake.
+// The entire job: host registers a code, joiner drops a complete offer in
+// the mailbox, host drops a complete answer back. Both blobs carry their
+// ICE candidates inline (non-trickle), so after two deliveries the worker
+// is never contacted again — video flows peer-to-peer.
 //
-// The WebSocket Hibernation API is used so an idle waiting room costs
-// nothing: the DO sleeps, sockets stay attached, and messages wake it.
+// "Waiting" costs nothing: the host holds ONE long-poll request open and
+// the DO answers it the moment the joiner's offer lands. No intervals, no
+// keepalives, no WebSockets. When both sides stop talking the DO is evicted
+// and the room ceases to exist, which is exactly the desired lifetime.
 // ==========================================
 
-const CODE_RE = /^[A-Z0-9]{4,10}$/;
-const MAX_MSG_CHARS = 65536;
+const FRESH_MS = 6000;   // a slot is "taken" while its owner touched it this recently
+const PARK_MS = 20000;   // max time a long-poll waits before saying "nothing yet"
 
-// Public STUN only. If both peers ever sit behind carrier-grade NAT and the
-// connection stalls, add a TURN service here — the client already reads
-// whatever this endpoint returns.
+const CODE_RE = /^[A-Z0-9]{4,10}$/;
+const MAX_SDP_CHARS = 65536;
+
 const ICE_SERVERS = [
   { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
   { urls: "stun:stun.cloudflare.com:3478" },
@@ -22,7 +25,7 @@ const ICE_SERVERS = [
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
   "Access-Control-Max-Age": "86400",
 };
@@ -35,107 +38,126 @@ function json(data, status = 200) {
 }
 
 export class Room {
-  constructor(state, env) {
-    this.ctx = state;
+  constructor(state) {
+    this.reset();
   }
 
-  otherRole(role) {
-    return role === "host" ? "joiner" : "host";
+  reset() {
+    this.room = {
+      hostSid: null, hostSeen: 0,
+      joinerSid: null, joinerSeen: 0,
+      offer: null, answer: null,
+      waiters: new Set(),
+    };
   }
 
-  peerSocket(role) {
-    return this.ctx.getWebSockets(this.otherRole(role))[0] || null;
+  /** Resolve every parked long-poll; they re-check the mailbox themselves. */
+  wake() {
+    for (const resolve of this.room.waiters) resolve();
+    this.room.waiters.clear();
   }
 
-  roleOf(ws) {
-    try {
-      return (ws.serializeAttachment() || {}).role || null;
-    } catch {
-      return null;
-    }
-  }
-
-  acceptAndClose(ws, code, reason) {
-    // Accepting first lets the browser see the real close code instead of a
-    // generic 1006, so the UI can say "no room with that code".
-    this.ctx.acceptWebSocket(ws, ["rejected"]);
-    ws.close(code, reason);
-    return new Response(null, { status: 101, webSocket: ws });
+  park() {
+    return new Promise((resolve) => {
+      this.room.waiters.add(resolve);
+      setTimeout(resolve, PARK_MS);
+    });
   }
 
   async fetch(request) {
-    if (request.headers.get("Upgrade") !== "websocket") {
-      return json({ error: "websocket_required" }, 426);
-    }
-
     const url = new URL(request.url);
     const role = url.searchParams.get("role");
-    const code = url.searchParams.get("code") || "";
-
-    if (role !== "host" && role !== "joiner") return json({ error: "bad_role" }, 400);
-    if (!CODE_RE.test(code)) return json({ error: "bad_code" }, 400);
-
-    const pair = new WebSocketPair();
-
-    // One host, one joiner, nothing else. A joiner reaching an empty room
-    // gets a distinctive close code the client can explain.
-    if (role === "host" && this.ctx.getWebSockets("host").length > 0) {
-      return this.acceptAndClose(pair[1], 4409, "host_already");
-    }
-    if (role === "joiner" && this.ctx.getWebSockets("host").length === 0) {
-      return this.acceptAndClose(pair[1], 4404, "no_such_room");
-    }
-    if (role === "joiner" && this.ctx.getWebSockets("joiner").length > 0) {
-      return this.acceptAndClose(pair[1], 4409, "room_full");
+    const sid = String(url.searchParams.get("sid") || "").slice(0, 48);
+    if ((role !== "host" && role !== "joiner") || !sid) {
+      return json({ error: "bad_request" }, 400);
     }
 
-    this.ctx.acceptWebSocket(pair[1], [role]);
-    pair[1].serializeAttachment({ role });
+    const R = this.room;
+    const now = Date.now();
 
-    if (role === "host") {
-      pair[1].send(JSON.stringify({ t: "host_ok", code }));
-    } else {
-      const peer = this.peerSocket(role);
-      if (peer) {
-        try {
-          peer.send(JSON.stringify({ t: "peer_joined" }));
-        } catch {
-          // The host socket vanished between check and send; the close
-          // handler will sort the room out.
+    /* ── deliveries ── */
+    if (request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      const data = JSON.stringify(body.data ?? "");
+      if (data.length > MAX_SDP_CHARS) return json({ error: "too_big" }, 413);
+
+      if (body.a === "create") {
+        // A fresh different host may take over (host refreshed the tab);
+        // a live one may not (two host tabs open).
+        if (R.hostSid && R.hostSid !== sid && now - R.hostSeen < FRESH_MS) {
+          return json({ error: "host_already" }, 409);
         }
+        const reclaim = R.hostSid !== sid;
+        this.reset();
+        R.hostSid = sid;
+        R.hostSeen = now;
+        return json({ ok: true, reclaimed: reclaim });
       }
-    }
 
-    return new Response(null, { status: 101, webSocket: pair[0] });
-  }
-
-  // Everything the peers send is opaque signaling text — relayed verbatim.
-  // No validation beyond size, because the peer's browser is the validator.
-  webSocketMessage(ws, message) {
-    if (typeof message !== "string" || message.length > MAX_MSG_CHARS) return;
-    try {
-      if (JSON.parse(message).t === "ping") return; // keepalive, not relayable
-    } catch {
-      return;
-    }
-    const peer = this.peerSocket(this.roleOf(ws));
-    if (peer) {
-      try {
-        peer.send(message);
-      } catch {
-        // Peer went away mid-relay; its close event handles cleanup.
+      if (body.a === "offer") {
+        if (!R.hostSid || now - R.hostSeen > FRESH_MS) return json({ error: "no_host" }, 404);
+        if (R.joinerSid && R.joinerSid !== sid && now - R.joinerSeen < FRESH_MS) {
+          return json({ error: "room_full" }, 409);
+        }
+        R.joinerSid = sid;
+        R.joinerSeen = now;
+        R.offer = body.data;
+        R.answer = null; // a new offer invalidates any stale answer
+        R.hostSeen = Math.max(R.hostSeen, 0);
+        this.wake();
+        return json({ ok: true });
       }
-    }
-  }
 
-  webSocketClose(ws) {
-    const role = this.roleOf(ws);
-    const peer = role ? this.peerSocket(role) : null;
-    if (peer) {
-      try {
-        peer.send(JSON.stringify({ t: "peer_left" }));
-      } catch {}
+      if (body.a === "answer") {
+        if (R.hostSid !== sid) return json({ error: "not_host" }, 403);
+        R.hostSeen = now;
+        R.answer = body.data;
+        this.wake();
+        return json({ ok: true });
+      }
+
+      if (body.a === "close") {
+        this.reset();
+        return json({ ok: true });
+      }
+
+      return json({ error: "bad_action" }, 400);
     }
+
+    /* ── long-poll ── */
+    if (role === "host") {
+      if (R.hostSid !== sid) return json({ error: "unknown_host" }, 404);
+      R.hostSeen = now;
+      if (R.offer) {
+        const offer = R.offer;
+        R.offer = null;
+        return json({ t: "offer", data: offer });
+      }
+      await this.park();
+      if (R.offer) {
+        const offer = R.offer;
+        R.offer = null;
+        return json({ t: "offer", data: offer });
+      }
+      return json({ t: "continue" });
+    }
+
+    // joiner
+    if (!R.hostSid || now - R.hostSeen > FRESH_MS) return json({ error: "no_host" }, 404);
+    if (R.joinerSid && R.joinerSid !== sid) return json({ error: "unknown_joiner" }, 404);
+    R.joinerSeen = now;
+    if (R.answer) {
+      const answer = R.answer;
+      R.answer = null;
+      return json({ t: "answer", data: answer });
+    }
+    await this.park();
+    if (R.answer) {
+      const answer = R.answer;
+      R.answer = null;
+      return json({ t: "answer", data: answer });
+    }
+    return json({ t: "continue" });
   }
 }
 
@@ -147,8 +169,11 @@ export default {
       return new Response(null, { status: 204, headers: CORS });
     }
 
-    if (url.pathname === "/ws") {
-      const id = env.ROOMS.idFromName(url.searchParams.get("code") || "");
+    if (url.pathname === "/room") {
+      if (!CODE_RE.test(url.searchParams.get("code") || "")) {
+        return json({ error: "bad_code" }, 400);
+      }
+      const id = env.ROOMS.idFromName(url.searchParams.get("code"));
       return env.ROOMS.get(id).fetch(request);
     }
 
