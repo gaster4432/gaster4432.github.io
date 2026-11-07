@@ -11,13 +11,31 @@
 import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { handleAction, poll, CODE_RE, MAX_SDP_CHARS } from './mailbox.js';
 
 const PORT = Number(process.env.PORT || 25789);
 const HOST = process.env.HOST || '0.0.0.0';
-const TLS_KEY = process.env.TLS_KEY || '';
-const TLS_CERT = process.env.TLS_CERT || '';
 const MAX_BODY = MAX_SDP_CHARS + 4096; // SDP blob plus JSON wrapper slack
+
+// TLS cert auto-detection: explicit env vars win; otherwise look next to
+// server.js and in the working directory. acme.sh's --install-cert drops
+// key.pem + fullchain.pem there and TLS turns on by itself — no custom env
+// vars needed, which panel eggs make awkward.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+function firstExisting(candidates) {
+  for (const c of candidates) {
+    if (!c) continue;
+    try { fs.accessSync(c); return c; } catch { /* try next */ }
+  }
+  return '';
+}
+const TLS_KEY = process.env.TLS_KEY
+  || firstExisting([path.join(HERE, 'key.pem'), path.join(process.cwd(), 'key.pem')]);
+const TLS_CERT = process.env.TLS_CERT
+  || firstExisting([path.join(HERE, 'fullchain.pem'), path.join(HERE, 'cert.pem'),
+    path.join(process.cwd(), 'fullchain.pem'), path.join(process.cwd(), 'cert.pem')]);
 
 const ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -119,6 +137,11 @@ const handler = (req, res) => {
     console.error('request failed:', err);
   });
 };
+
+// The server holds parked long-polls; an unhandled hiccup should not take
+// every waiting host down with it. Log loudly, keep serving.
+process.on('uncaughtException', (err) => console.error('uncaught exception:', err));
+process.on('unhandledRejection', (err) => console.error('unhandled rejection:', err));
 
 const useTls = TLS_KEY && TLS_CERT;
 const server = useTls

@@ -11,11 +11,33 @@ Zero dependencies. Node 18+. Two files: `mailbox.js` (room logic) and
 node server.js                 # plain HTTP on 0.0.0.0:25789
 ```
 
-With TLS (for real browser use — see below):
+TLS turns on automatically as soon as `key.pem` + `fullchain.pem` (or
+`cert.pem`) sit next to `server.js` or in the working directory — no env
+vars needed. `TLS_KEY` / `TLS_CERT` override the search.
+
+## Deploying on the Altare Node egg
+
+The egg runs `node /home/container/${MAIN_FILE}` and auto-runs `npm install`
+when a `package.json` sits at the container root. Zero dependencies, so that
+step is instant either way:
+
+- **Layout A** — upload the *contents* of this folder to the container root:
+  `package.json` and `server.js` at `/home/container/`, set
+  **MAIN_FILE = `server.js`**.
+- **Layout B** — upload this folder as a subfolder and set
+  **MAIN_FILE = `peek-node/server.js`** (nothing lands at the root, so the
+  egg's `npm install` step is skipped — fine, there's nothing to install).
+
+Install the cert to the container root and the egg just works:
 
 ```sh
-PORT=25789 TLS_KEY=./key.pem TLS_CERT=./fullchain.pem node server.js
+~/.acme.sh/acme.sh --install-cert -d peek-signal.duckdns.org \
+  --key-file /home/container/key.pem \
+  --fullchain-file /home/container/fullchain.pem
 ```
+
+acme.sh's cron renews and rewrites those files; **restart the server from
+the panel** after a renewal to load the new cert.
 
 ## Protocol (for the curious)
 
