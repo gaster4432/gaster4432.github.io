@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Peek — share your screen with a friend over a direct peer-to-peer WebRTC connection. No accounts, no recordings, just a code.">
+<meta name="theme-color" content="#0a0a0b">
+<meta name="color-scheme" content="dark">
+<title>Peek · screen share</title>
+<meta property="og:title" content="Peek · screen share">
+<meta property="og:description" content="Share your screen with a friend over a direct peer-to-peer WebRTC connection. No accounts, no recordings, just a code.">
+<meta property="og:url" content="https://gaster4432.github.io/peek/">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://gaster4432.github.io/images/og-banner.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/x-icon" href="/favicon-v2.ico">
+<link rel="canonical" href="https://gaster4432.github.io/peek/">
+<link rel="stylesheet" href="/styles.css">
+<style>
+/* Reset, tokens and body background come from /styles.css. */
+.app { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; padding: 32px 16px; }
+.topbar { width: 100%; max-width: 760px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+.back-link { font-size: 13px; color: rgba(255,255,255,0.55); text-decoration: none; }
+h1 {
+  font-size: 26px; font-weight: 800; letter-spacing: -1px;
+  background: linear-gradient(135deg, #fff 0%, #c4b5fd 50%, #a78bfa 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.tagline { font-size: 13px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+
+/* ── menu ── */
+.menu { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 460px; margin-top: 8vh; }
+.opt {
+  display: flex; align-items: center; gap: 16px; padding: 22px 20px;
+  background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px; cursor: pointer; text-align: left; color: inherit; font: inherit;
+  transition: all 0.2s ease;
+}
+.opt:hover { background: rgba(255,255,255,0.045); border-color: rgba(167,139,250,0.4); transform: translateY(-2px); }
+.opt .oi { width: 46px; height: 46px; min-width: 46px; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-size: 22px; background: rgba(167,139,250,0.12); color: #c4b5fd; }
+.opt h3 { font-size: 16px; font-weight: 600; margin-bottom: 3px; }
+.opt p { font-size: 13px; color: rgba(255,255,255,0.55); line-height: 1.45; }
+
+/* ── panels ── */
+.panel { width: 100%; max-width: 560px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; padding: 28px; margin-top: 4vh; display: none; }
+.panel.show { display: block; }
+.panel h2 { font-size: 17px; font-weight: 700; margin-bottom: 14px; }
+.hint { font-size: 12.5px; color: rgba(255,255,255,0.45); line-height: 1.55; margin-top: 12px; }
+
+/* big room code */
+.code {
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-size: clamp(34px, 8vw, 54px); font-weight: 700; letter-spacing: 0.22em;
+  color: #c4b5fd; text-align: center; padding: 18px 0 14px; user-select: all;
+}
+.code-row { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.btn {
+  border: none; border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 13px;
+  background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.75); padding: 9px 14px;
+  transition: all 0.15s; font-family: inherit;
+}
+.btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.btn.primary { background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: #fff; padding: 12px 22px; font-size: 14px; }
+.btn.primary:hover { opacity: 0.92; }
+.btn.danger { background: rgba(255,45,90,0.15); color: #ff7a9c; }
+.btn.danger:hover { background: rgba(255,45,90,0.25); color: #fff; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* join input */
+#codeInput {
+  width: 100%; box-sizing: border-box; text-align: center; text-transform: uppercase;
+  font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-size: 30px; letter-spacing: 0.3em; padding: 14px 0 14px 0.3em;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px; color: #e8e8ed; outline: none;
+}
+#codeInput:focus { border-color: rgba(167,139,250,0.5); }
+
+/* status badge */
+.status {
+  display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px;
+  color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 6px 14px;
+}
+.status .dot { width: 8px; height: 8px; border-radius: 50%; background: #9aa3b2; flex-shrink: 0; }
+.status.wait .dot { background: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,0.7); }
+.status.live .dot { background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,0.7); }
+.status.bad .dot { background: #ff5d7a; box-shadow: 0 0 8px rgba(255,93,122,0.7); }
+.actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+
+/* ── remote video (joiner) ── */
+.vid-wrap { display: none; position: relative; width: 100%; max-width: 960px; margin-top: 16px; }
+.vid-wrap.show { display: block; }
+#remoteVideo {
+  width: 100%; border-radius: 14px; background: #000;
+  border: 1px solid rgba(255,255,255,0.09); display: block;
+}
+.vid-bar { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+
+/* ── host corner preview ── */
+#previewBox { position: fixed; right: 18px; bottom: 18px; z-index: 60; display: none; flex-direction: column; gap: 6px; }
+#previewBox.show { display: flex; }
+#previewVideo {
+  width: min(280px, 34vw); border-radius: 12px; border: 1px solid rgba(167,139,250,0.35);
+  box-shadow: 0 10px 34px rgba(0,0,0,0.55); background: #000; display: block;
+}
+#previewBox .vid-cap { font-size: 11px; color: rgba(255,255,255,0.5); text-align: right; }
+
+/* host page keeps room for the floating preview */
+body.hosting { padding-bottom: 130px; }
+
+@media (max-width: 640px) {
+  .panel { padding: 20px; }
+  .menu { margin-top: 4vh; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div>
+      <h1>Peek</h1>
+      <p class="tagline">show your friend your screen — direct P2P, nothing recorded</p>
+    </div>
+    <a class="back-link" href="/">← home</a>
+  </div>
+
+  <!-- ── menu ── -->
+  <div class="menu" id="menu">
+    <button class="opt" id="optHost">
+      <span class="oi" aria-hidden="true">🖥️</span>
+      <span>
+        <h3>Host a screen share</h3>
+        <p>Pick a window, get a code, keep the tab open. Your friend watches live.</p>
+      </span>
+    </button>
+    <button class="opt" id="optJoin">
+      <span class="oi" aria-hidden="true">👀</span>
+      <span>
+        <h3>Join a screen share</h3>
+        <p>Got a code from someone? Type it in and watch their screen.</p>
+      </span>
+    </button>
+    <p class="hint" style="text-align:center">The connection is direct browser-to-browser over WebRTC. The little server in the middle only passes the handshake, then it's just two computers talking.</p>
+  </div>
+
+  <!-- ── host ── -->
+  <div class="panel" id="hostView">
+    <h2>Your code — give it to your friend</h2>
+    <div class="code-row">
+      <div class="code" id="codeOut">······</div>
+      <button class="btn" id="copyBtn" title="Copy code">Copy</button>
+    </div>
+    <div><span class="status wait" id="hostStatus"><span class="dot"></span><span id="hostStatusText">connecting…</span></span></div>
+    <div class="actions">
+      <button class="btn" id="pipBtn" title="Float the preview over your other windows">⧉ Pop out preview</button>
+      <button class="btn danger" id="stopBtn">⏹ Stop sharing</button>
+      <button class="btn" id="hostBack">Back</button>
+    </div>
+    <p class="hint">Keep this tab open while your friend watches. The preview in the corner (or popped out) shows exactly what they see.</p>
+  </div>
+
+  <!-- ── join ── -->
+  <div class="panel" id="joinView">
+    <h2>Enter the code</h2>
+    <input id="codeInput" maxlength="6" autocomplete="off" spellcheck="false" placeholder="······" aria-label="Room code">
+    <div class="actions">
+      <button class="btn primary" id="joinBtn">Join</button>
+      <button class="btn" id="joinBack">Back</button>
+    </div>
+    <div style="margin-top:14px"><span class="status" id="joinStatus" hidden><span class="dot"></span><span id="joinStatusText"></span></span></div>
+    <p class="hint">The host has to keep their tab open. If it says no room, check the code — they may have stopped sharing.</p>
+  </div>
+
+  <!-- ── remote stream (joiner) ── -->
+  <div class="vid-wrap" id="vidWrap">
+    <video id="remoteVideo" autoplay playsinline></video>
+    <div class="vid-bar">
+      <span class="status live" id="liveStatus"><span class="dot"></span><span id="liveStatusText">live</span></span>
+      <button class="btn" id="fsBtn">⛶ Fullscreen</button>
+      <button class="btn danger" id="leaveBtn">Leave</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── host's own floating preview ── -->
+<div id="previewBox">
+  <video id="previewVideo" autoplay muted playsinline></video>
+  <div class="vid-cap">what your friend sees</div>
+</div>
+
+<script>
+'use strict';
+const SIGNAL_HTTP = 'https://peek-signal.archlinuxkid99.workers.dev';
+const SIGNAL_WS = 'wss://peek-signal.archlinuxkid99.workers.dev/ws';
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I/1, O/0 lookalikes
+
+const $ = id => document.getElementById(id);
+
+/* ── screens ── */
+function show(panel) {
+  ['menu', 'hostView', 'joinView'].forEach(p => $(p).classList.toggle('show', p === panel));
+  if (panel !== 'menu') $('menu').style.display = 'none';
+  else $('menu').style.display = '';
+  document.body.classList.toggle('hosting', panel === 'hostView');
+  if (panel !== 'joinView') $('vidWrap').classList.remove('show');
+}
+
+/* ── shared state ── */
+let ws = null;
+let pc = null;
+let role = null;
+let keepaliveT = null;
+let statsT = null;
+let pendingIce = [];        // candidates that arrive before the remote description
+let localStream = null;     // host only
+
+function setStatus(el, textEl, text, cls) {
+  if (textEl) textEl.textContent = text;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+  el.hidden = false;
+}
+
+function genCode() {
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
+}
+
+async function iceServers() {
+  try {
+    const r = await fetch(SIGNAL_HTTP + '/ice');
+    const d = await r.json();
+    if (d && Array.isArray(d.iceServers) && d.iceServers.length) return d.iceServers;
+  } catch (e) {}
+  // Offline fallback — same list the worker would have returned.
+  return [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }];
+}
+
+/* ── websocket ── */
+function connect(roomCode, roomRole, onClose) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const sock = new WebSocket(`${SIGNAL_WS}?code=${roomCode}&role=${roomRole}`);
+    sock.onopen = () => { settled = true; resolve(sock); };
+    sock.onmessage = ev => { try { handleSignal(JSON.parse(ev.data)); } catch (e) {} };
+    sock.onclose = ev => {
+      clearInterval(keepaliveT);
+      if (!settled) {
+        settled = true;
+        const reasons = { 4404: 'No room with that code — did the host stop sharing?', 4409: 'That room is busy.' };
+        reject(new Error(reasons[ev.code] || 'Could not reach the signaling server.'));
+        return;
+      }
+      onClose && onClose(ev.code);
+    };
+    sock.onerror = () => {};
+    // The WS goes silent once the WebRTC handshake is done — keep the
+    // hibernating room awake so late "peer_left" notices still arrive.
+    keepaliveT = setInterval(() => {
+      if (sock.readyState === 1) sock.send(JSON.stringify({ t: 'ping' }));
+    }, 25000);
+  });
+}
+
+/* ── peer connection plumbing (both sides) ── */
+function newPC(ice) {
+  const p = new RTCPeerConnection({ iceServers: ice });
+  p.onicecandidate = e => {
+    if (e.candidate && ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'ice', data: e.candidate.toJSON() }));
+  };
+  p.onconnectionstatechange = () => onPcState(p.connectionState);
+  return p;
+}
+
+function queueOrApplyIce(cand) {
+  if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+    pc.addIceCandidate(cand).catch(() => {});
+  } else {
+    pendingIce.push(cand);
+  }
+}
+
+async function flushIce() {
+  const q = pendingIce;
+  pendingIce = [];
+  for (const c of q) {
+    try { await pc.addIceCandidate(c); } catch (e) {}
+  }
+}
+
+/* Screen content barely changes between frames — tell the encoder to keep
+   resolution (sharp text) instead of framerate, and cap the rate so a 4K
+   monitor doesn't try to saturate the friend's upload. */
+function tuneSender(sender, isVideo) {
+  if (!isVideo) return;
+  try {
+    if (sender.track) sender.track.contentHint = 'detail';
+    const p = sender.getParameters();
+    p.degradationPreference = 'maintain-resolution';
+    p.encodings = [{ maxBitrate: 2500000, maxFramerate: 15 }];
+    sender.setParameters(p).catch(() => {});
+  } catch (e) {}
+}
+
+/* "DIRECT" vs "RELAY" — the user cares that this is actually peer-to-peer. */
+async function watchStats() {
+  clearInterval(statsT);
+  const badge = $('liveStatus'), label = $('liveStatusText');
+  statsT = setInterval(async () => {
+    if (!pc) return clearInterval(statsT);
+    try {
+      const stats = await pc.getStats();
+      let pair = null;
+      stats.forEach(s => {
+        if (s.type === 'candidate-pair' && s.state === 'succeeded' && (s.selected || s.nominated)) pair = s;
+      });
+      if (!pair) stats.forEach(s => {
+        if (!pair && s.type === 'candidate-pair' && s.state === 'succeeded') pair = s;
+      });
+      if (!pair) return;
+      const lc = stats.get(pair.localCandidateId), rc = stats.get(pair.remoteCandidateId);
+      const relayed = (lc && lc.candidateType === 'relay') || (rc && rc.candidateType === 'relay');
+      const rtt = pair.currentRoundTripTime != null ? Math.round(pair.currentRoundTripTime * 1000) : null;
+      label.textContent = (relayed ? 'relayed' : 'direct P2P') + (rtt != null ? ' · ' + rtt + ' ms' : '');
+      badge.className = 'status ' + (relayed ? 'wait' : 'live');
+    } catch (e) {}
+  }, 2000);
+}
+
+/* ── signaling messages ── */
+function handleSignal(msg) {
+  if (msg.t === 'peer_joined') { if (role === 'host') hostOffer(); }
+  if (msg.t === 'offer' && role === 'joiner') joinAnswer(msg.data);
+  if (msg.t === 'answer' && role === 'host') {
+    if (pc) pc.setRemoteDescription(new RTCSessionDescription(msg.data)).then(flushIce).catch(() => {});
+  }
+  if (msg.t === 'ice') queueOrApplyIce(new RTCIceCandidate(msg.data));
+  if (msg.t === 'peer_left') onPeerLeft();
+}
+
+function onPeerLeft() {
+  if (role === 'host') {
+    if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+    setStatus($('hostStatus'), $('hostStatusText'), 'friend left — waiting for a new connection', 'wait');
+    // The room stays open: the next joiner with the code gets a fresh offer.
+  } else {
+    teardown(false);
+    setStatus($('joinStatus'), $('joinStatusText'), 'the host closed the share', 'bad');
+  }
+}
+
+/* ── host ── */
+async function startHost() {
+  role = 'host';
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 15, max: 30 } },
+      audio: true,
+    });
+  } catch (eFirst) {
+    try {
+      // Firefox and some system screens refuse audio capture — try silent.
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    } catch (e) {
+      setStatus($('hostStatus'), $('hostStatusText'), 'screen pick cancelled', 'bad');
+      role = null;
+      return;
+    }
+  }
+  localStream = stream;
+  // If the user hits the browser's own "stop sharing" bar, end cleanly.
+  stream.getVideoTracks()[0].addEventListener('ended', stopHost);
+
+  $('previewVideo').srcObject = stream;
+  $('previewBox').classList.add('show');
+  show('hostView');
+  $('codeOut').textContent = '······';
+  setStatus($('hostStatus'), $('hostStatusText'), 'getting a code…', 'wait');
+
+  const code = genCode();
+  try {
+    ws = await connect(code, 'host', onWsClosed);
+  } catch (e) {
+    setStatus($('hostStatus'), $('hostStatusText'), e.message, 'bad');
+    return;
+  }
+  $('codeOut').textContent = code;
+  setStatus($('hostStatus'), $('hostStatusText'), 'waiting for your friend…', 'wait');
+}
+
+async function hostOffer() {
+  setStatus($('hostStatus'), $('hostStatusText'), 'friend connected — negotiating…', 'wait');
+  if (pc) { try { pc.close(); } catch (e) {} }
+  pendingIce = [];
+  pc = newPC(await iceServers());
+  localStream.getTracks().forEach(t => tuneSender(pc.addTrack(t, localStream), t.kind === 'video'));
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  ws.send(JSON.stringify({ t: 'offer', data: pc.localDescription }));
+}
+
+/* ── join ── */
+async function startJoin() {
+  const code = $('codeInput').value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{4,10}$/.test(code)) {
+    setStatus($('joinStatus'), $('joinStatusText'), 'That code looks off — it\'s 6 letters/numbers.', 'bad');
+    return;
+  }
+  role = 'joiner';
+  $('joinBtn').disabled = true;
+  setStatus($('joinStatus'), $('joinStatusText'), 'knocking…', 'wait');
+  try {
+    ws = await connect(code, 'joiner', onWsClosed);
+  } catch (e) {
+    $('joinBtn').disabled = false;
+    setStatus($('joinStatus'), $('joinStatusText'), e.message, 'bad');
+    return;
+  }
+  $('joinBtn').disabled = false;
+  setStatus($('joinStatus'), $('joinStatusText'), 'connected to room — waiting for video…', 'wait');
+}
+
+async function joinAnswer(offer) {
+  pendingIce = [];
+  pc = newPC(await iceServers());
+  pc.ontrack = e => {
+    $('remoteVideo').srcObject = e.streams[0];
+    $('vidWrap').classList.add('show');
+    setStatus($('liveStatus'), $('liveStatusText'), 'connecting…', 'wait');
+    watchStats();
+  };
+  await pc.setRemoteDescription(new RTCSessionDescription(offer));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  ws.send(JSON.stringify({ t: 'answer', data: pc.localDescription }));
+  flushIce();
+}
+
+function onPcState(state) {
+  if (state === 'connected') {
+    if (role === 'host') setStatus($('hostStatus'), $('hostStatusText'), 'LIVE — your friend can see your screen', 'live');
+    else setStatus($('liveStatus'), $('liveStatusText'), 'live', 'live');
+  } else if (state === 'failed') {
+    if (role === 'host') setStatus($('hostStatus'), $('hostStatusText'), 'connection failed — friend may need to rejoin', 'bad');
+    else setStatus($('liveStatus'), $('liveStatusText'), 'connection failed', 'bad');
+  }
+}
+
+/* ── teardown ── */
+function onWsClosed(code) {
+  // Unexpected disconnects (host refreshed, network blip). teardown() already
+  // ran if this was user-initiated; this covers the surprise case.
+  if (role === 'host' && localStream) {
+    setStatus($('hostStatus'), $('hostStatusText'), 'signaling lost — share ended', 'bad');
+  }
+}
+
+function teardown(userInitiated) {
+  clearInterval(keepaliveT);
+  clearInterval(statsT);
+  pendingIce = [];
+  if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+  if (ws) { try { ws.close(); } catch (e) {} ws = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  $('previewVideo').srcObject = null;
+  $('previewBox').classList.remove('show');
+  $('remoteVideo').srcObject = null;
+  $('vidWrap').classList.remove('show');
+  document.body.classList.remove('hosting');
+  if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
+  role = null;
+  show('menu');
+  $('joinStatus').hidden = true;
+  $('joinBtn').disabled = false;
+  $('codeInput').value = '';
+}
+
+function stopHost() { teardown(true); }
+
+/* ── wiring ── */
+$('optHost').onclick = startHost;
+$('optJoin').onclick = () => { show('joinView'); $('codeInput').focus(); };
+$('joinBtn').onclick = startJoin;
+$('stopBtn').onclick = stopHost;
+$('leaveBtn').onclick = () => teardown(true);
+$('hostBack').onclick = () => { if (localStream) stopHost(); else show('menu'); };
+$('joinBack').onclick = () => { if (ws) teardown(true); else show('menu'); };
+$('copyBtn').onclick = () => {
+  navigator.clipboard.writeText($('codeOut').textContent).then(() => {
+    $('copyBtn').textContent = 'Copied!';
+    setTimeout(() => { $('copyBtn').textContent = 'Copy'; }, 1500);
+  }).catch(() => {});
+};
+$('pipBtn').onclick = () => {
+  const v = $('previewVideo');
+  if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
+  else if (v.requestPictureInPicture) v.requestPictureInPicture().catch(() => {});
+};
+$('fsBtn').onclick = () => {
+  const v = $('remoteVideo');
+  if (v.requestFullscreen) v.requestFullscreen().catch(() => {});
+};
+$('codeInput').addEventListener('input', e => {
+  e.target.value = e.target.value.toUpperCase().replace(new RegExp('[^' + CODE_ALPHABET + ']', 'g'), '').slice(0, 6);
+});
+$('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') startJoin(); });
+window.addEventListener('beforeunload', () => { if (ws) { try { ws.close(); } catch (e) {} } });
+</script>
+</body>
+</html>

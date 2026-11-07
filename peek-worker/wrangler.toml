@@ -1,0 +1,17 @@
+name = "peek-signal"
+main = "worker.js"
+compatibility_date = "2026-10-17"
+
+# One Durable Object class. Each room code maps to one Room via idFromName,
+# so no registry is needed — the code IS the address.
+#
+# SQLite classes are used because those are what the Workers free plan
+# provisions. The Room never actually touches storage: while its WebSockets
+# are open it stays alive (hibernating), and once both hang up the platform
+# evicts it on its own.
+[durable_objects]
+bindings = [{ name = "ROOMS", class_name = "Room" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
