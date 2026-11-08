@@ -22,6 +22,12 @@ const SWEEP_EVERY_MS = 60000;
 
 const VALID_TYPES = new Set(['offer', 'answer', 'ice', 'bye']);
 
+// Handshake visibility: the container console shows the whole exchange, so
+// a failed session can be diagnosed from the logs instead of guessed at.
+function roomLog(code, event) {
+  console.log(`[${new Date().toISOString()}] ${code}: ${event}`);
+}
+
 /** code -> room state. In-memory on purpose; a restart just means the
  *  current hosts re-share their codes. */
 const rooms = new Map();
@@ -92,6 +98,7 @@ export function handleAction(code, role, sid, body) {
     }
     const reclaim = !!room.hostSid && room.hostSid !== sid;
     wake(room);
+    roomLog(code, `host claimed${reclaim ? ' (reclaim)' : ''}`);
     room.hostSid = sid;
     room.hostSeen = now;
     room.joinerSid = null;
@@ -118,6 +125,7 @@ export function handleAction(code, role, sid, body) {
     }
 
     // Deliver to the other peer's inbox, in order.
+    roomLog(code, `${role} → ${msg.t}`);
     room.mail[otherRole(role)].push({ t: msg.t, data: msg.data ?? null });
     wake(room);
     return { status: 200, data: { ok: true } };
@@ -156,6 +164,7 @@ export async function poll(code, role, sid) {
       if (isNew) {
         // Fresh joiner: any queued offer is for a previous session — drop it
         // so the host sends a fresh one (codelab 'ready' → caller re-offers).
+        roomLog(code, 'joiner joined');
         room.mail.joiner = [];
         room.mail.host.push({ t: 'ready', data: null });
         wake(room);
