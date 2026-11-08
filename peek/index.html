@@ -468,6 +468,7 @@ async function joinAnswer(offer) {
   try {
     await pc2.setRemoteDescription(new RTCSessionDescription(offer));
     onSetRemoteSuccess(pc2);
+    flushIce(); // the host's candidates that arrived before the offer
   } catch (e) {
     onSetSessionDescriptionError(e);
     return;
@@ -526,8 +527,9 @@ function handleSignal(msg) {
       }
       break;
     case 'offer':
-      // The caller offers; a callee receiving one here would be a protocol
-      // violation — ignore.
+      // The callee (joiner) receives the caller's offer — codelab
+      // createdOffer(): setRemote → createAnswer → send back.
+      if (role === 'joiner') joinAnswer(msg.data);
       break;
     case 'answer':
       if (role === 'host') handleAnswer(msg.data);
