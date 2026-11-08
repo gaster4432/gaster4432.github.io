@@ -97,17 +97,6 @@ h1 {
 }
 .vid-bar { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 
-/* autoplay fallback: browsers block sound without a gesture (Steam Deck couch UI) */
-#tapOverlay {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.55); border-radius: 14px; cursor: pointer; z-index: 5;
-}
-#tapOverlay.hidden { display: none; }
-#tapOverlay span {
-  background: rgba(167,139,250,0.9); color: #fff; font-weight: 700; font-size: 15px;
-  padding: 12px 22px; border-radius: 12px; letter-spacing: 0.3px;
-}
-
 /* ── host corner preview ── */
 #previewBox { position: fixed; right: 18px; bottom: 18px; z-index: 60; display: none; flex-direction: column; gap: 6px; }
 #previewBox.show { display: flex; }
@@ -169,7 +158,6 @@ body.hosting { padding-bottom: 130px; }
       <button class="btn" id="hostBack">Back</button>
     </div>
     <p class="hint">Keep this tab open while your friend watches. The preview in the corner (or popped out) shows exactly what they see.</p>
-    <p class="hint" id="hostAudioNote" style="margin-top:8px"></p>
   </div>
 
   <!-- ── join ── -->
@@ -187,7 +175,6 @@ body.hosting { padding-bottom: 130px; }
   <!-- ── remote stream (joiner) ── -->
   <div class="vid-wrap" id="vidWrap">
     <video id="remoteVideo" autoplay playsinline></video>
-    <div id="tapOverlay" class="hidden"><span>▶ tap for sound</span></div>
     <div class="vid-bar">
       <span class="status live" id="liveStatus"><span class="dot"></span><span id="liveStatusText">live</span></span>
       <button class="btn" id="fsBtn">⛶ Fullscreen</button>
@@ -235,7 +222,6 @@ let roomCode = null;
 let mySid = null;
 let pc = null;            // RTCPeerConnection
 let localStream = null;   // host only
-let remoteStream = null;  // joiner: tracks assembled manually — e.streams[] is flaky cross-browser
 let polling = false;      // long-poll loop guard
 let statsT = null;
 
@@ -316,9 +302,6 @@ async function startHost() {
     stream = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: { ideal: 15, max: 30 } },
       audio: true,
-      // Nudges Windows Chrome to offer system audio in the picker; harmless
-      // where unsupported. Linux browsers only ever capture tab audio.
-      systemAudio: 'include',
     });
   } catch (eFirst) {
     try {
@@ -331,12 +314,6 @@ async function startHost() {
   }
   localStream = stream;
   stream.getVideoTracks()[0].addEventListener('ended', stopHost);
-
-  // Say what the browser actually captured so Linux/Firefox hosts are never
-  // surprised by silence on the viewer's end.
-  $('hostAudioNote').textContent = stream.getAudioTracks().length
-    ? '🔊 audio is being shared with viewers'
-    : '🔇 no audio track — this browser/platform did not offer one (Linux browsers only capture tab audio; Windows Chrome offers system audio)';
 
   $('previewVideo').srcObject = stream;
   $('previewBox').classList.add('show');
@@ -456,18 +433,10 @@ async function startJoin() {
     pc.addTransceiver('video', { direction: 'recvonly' });
     pc.addTransceiver('audio', { direction: 'recvonly' });
     pc.ontrack = e => {
-      // e.streams[] depends on SDP msid association, which Firefox and Chrome
-      // disagree on often enough to silently drop video AND audio — assemble
-      // the stream manually so every track lands in one place.
-      if (!remoteStream) {
-        remoteStream = new MediaStream();
-        $('remoteVideo').srcObject = remoteStream;
-        $('vidWrap').classList.add('show');
-        setStatus($('liveStatus'), $('liveStatusText'), 'connecting…', 'wait');
-        watchStats();
-      }
-      remoteStream.addTrack(e.track);
-      tryPlayRemote();
+      $('remoteVideo').srcObject = e.streams[0];
+      $('vidWrap').classList.add('show');
+      setStatus($('liveStatus'), $('liveStatusText'), 'connecting…', 'wait');
+      watchStats();
     };
     pc.onconnectionstatechange = () => {
       const s = pc && pc.connectionState;
@@ -537,18 +506,6 @@ async function joinLoop() {
   polling = false;
 }
 
-/* Autoplay policies block sound until a gesture; when play() is refused,
- * surface a tap target instead of failing silently. */
-function tryPlayRemote() {
-  const v = $('remoteVideo');
-  v.muted = false;
-  v.play().then(() => {
-    $('tapOverlay').classList.add('hidden');
-  }).catch(() => {
-    $('tapOverlay').classList.remove('hidden');
-  });
-}
-
 /* "DIRECT" vs "RELAY" — the user cares that this is actually peer-to-peer. */
 async function watchStats() {
   clearInterval(statsT);
@@ -584,11 +541,9 @@ function teardown() {
     try { fetch(`${SIGNAL}/room?code=${roomCode}&role=host&sid=${mySid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a: 'close' }), keepalive: true }); } catch (e) {}
   }
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-  remoteStream = null;
   $('previewVideo').srcObject = null;
   $('previewBox').classList.remove('show');
   $('remoteVideo').srcObject = null;
-  $('tapOverlay').classList.add('hidden');
   $('vidWrap').classList.remove('show');
   document.body.classList.remove('hosting');
   if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
@@ -598,46 +553,6 @@ function teardown() {
   $('joinStatus').hidden = true;
   $('joinBtn').disabled = false;
   $('codeInput').value = '';
-}
-
-/* ── Firefox warm-up ──
- * Firefox initializes its ICE/DTLS stack lazily, and the FIRST peer
- * connection in a fresh page is unreliable (observed on Steam Deck Firefox:
- * the first join fails until some connection has been made once). Open a
- * throwaway in-page loopback — two RTCPeerConnections wired to each other —
- * to prime the exact same subsystems, then close it. No signaling server
- * or network peer involved. */
-function warmUpWebRTC() {
-  if (typeof RTCPeerConnection === 'undefined') return;
-  let a = null, b = null;
-  const done = () => {
-    if (a) { try { a.close(); } catch (e) {} a = null; }
-    if (b) { try { b.close(); } catch (e) {} b = null; }
-  };
-  try {
-    const stun = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-    a = new RTCPeerConnection(stun);
-    b = new RTCPeerConnection(stun);
-    a.onicecandidate = e => { if (e.candidate) b.addIceCandidate(e.candidate).catch(() => {}); };
-    b.onicecandidate = e => { if (e.candidate) a.addIceCandidate(e.candidate).catch(() => {}); };
-    a.onconnectionstatechange = () => {
-      if (a.connectionState === 'connected' || a.connectionState === 'failed') {
-        console.debug('webrtc stack warmed up:', a.connectionState);
-        done();
-      }
-    };
-    a.addTransceiver('audio', { direction: 'recvonly' });
-    a.addTransceiver('video', { direction: 'recvonly' });
-    (async () => {
-      await a.setLocalDescription(await a.createOffer());
-      await b.setRemoteDescription(a.localDescription);
-      await b.setLocalDescription(await b.createAnswer());
-      await a.setRemoteDescription(b.localDescription);
-    })().catch(done);
-    setTimeout(done, 4000);
-  } catch (e) {
-    done();
-  }
 }
 
 /* ── wiring ── */
@@ -663,13 +578,10 @@ $('fsBtn').onclick = () => {
   const v = $('remoteVideo');
   if (v.requestFullscreen) v.requestFullscreen().catch(() => {});
 };
-$('tapOverlay').onclick = tryPlayRemote;
 $('codeInput').addEventListener('input', e => {
   e.target.value = e.target.value.toUpperCase().replace(new RegExp('[^' + CODE_ALPHABET + ']', 'g'), '').slice(0, 6);
 });
 $('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') startJoin(); });
-
-warmUpWebRTC();
 </script>
 </body>
 </html>

@@ -12,7 +12,6 @@ import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { handleAction, poll, CODE_RE, MAX_SDP_CHARS } from './mailbox.js';
 
@@ -38,49 +37,10 @@ const TLS_CERT = process.env.TLS_CERT
   || firstExisting([path.join(HERE, 'fullchain.pem'), path.join(HERE, 'cert.pem'),
     path.join(process.cwd(), 'fullchain.pem'), path.join(process.cwd(), 'cert.pem')]);
 
-// STUN alone can't crack every NAT pair — symmetric NAT / CGNAT (common on
-// rural ISPs) defeats it, and the direct peer link fails even though the
-// signaling worked. When TURN credentials are configured below, relayed
-// candidates become a guaranteed fallback: media only relays when the direct
-// path fails. Get free TURN (Cloudflare Calls ~1TB/mo, or metered.ca) and set
-// TURN_URLS / TURN_USERNAME / TURN_CREDENTIAL in the start command.
 const ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
   { urls: 'stun:stun.cloudflare.com:3478' },
 ];
-
-/**
- * TURN configuration, two modes:
- *  - Cloudflare style: set TURN_SECRET=<shared key>. /ice then mints an
- *    ephemeral credential per request (username = expiry unix timestamp,
- *    credential = base64 HMAC-SHA256(secret, username)) — the secret never
- *    reaches a browser. URLs default to Cloudflare's standard relays.
- *  - Static style (metered.ca etc.): set TURN_URLS + TURN_USERNAME +
- *    TURN_CREDENTIAL, passed through as-is.
- */
-function turnIceServers() {
-  if (process.env.TURN_SECRET) {
-    const ttl = parseInt(process.env.TURN_TTL_SEC || '21600', 10);
-    const username = String(Math.floor(Date.now() / 1000) + ttl);
-    const credential = crypto
-      .createHmac('sha256', process.env.TURN_SECRET)
-      .update(username)
-      .digest('base64');
-    const urls = (process.env.TURN_URLS
-      || 'turn:standard.turn.cloudflare.com:3478?transport=udp,turn:standard.turn.cloudflare.com:3478?transport=tcp,turns:standard.turn.cloudflare.com:443?transport=tcp')
-      .split(',').map((s) => s.trim()).filter(Boolean);
-    return [{ urls, username, credential }];
-  }
-  if (process.env.TURN_URLS && process.env.TURN_USERNAME) {
-    return [{
-      urls: process.env.TURN_URLS.split(',').map((s) => s.trim()).filter(Boolean),
-      username: process.env.TURN_USERNAME,
-      credential: process.env.TURN_CREDENTIAL || '',
-    }];
-  }
-  return [];
-}
-const turnConfigured = turnIceServers().length > 0;
 
 // The page lives on https://gaster4432.github.io, so this API must answer
 // CORS or the browser eats every request. Wide open is fine: the only thing
@@ -134,9 +94,9 @@ async function route(req, res) {
     return json(res, { ok: true, service: 'peek-signal-node' });
   }
 
-    if (url.pathname === '/ice') {
-      return json({ iceServers: [...ICE_SERVERS, ...turnIceServers()] });
-    }
+  if (url.pathname === '/ice') {
+    return json(res, { iceServers: ICE_SERVERS });
+  }
 
   if (url.pathname === '/room') {
     const code = url.searchParams.get('code') || '';
@@ -190,6 +150,5 @@ const server = useTls
 
 server.listen(PORT, HOST, () => {
   console.log(`peek-signal-node listening on ${HOST}:${PORT}${useTls ? ' (TLS)' : ' (plain HTTP — fine behind a TLS terminator, NOT for browser use from an https page)'}`);
-  console.log(`TURN relay: ${turnConfigured ? 'enabled' : 'off (STUN only)'}`);
   console.log('Done, the application is running');
 });
