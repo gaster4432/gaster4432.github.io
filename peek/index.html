@@ -191,17 +191,20 @@ body.hosting { padding-bottom: 130px; }
 
 <script>
 'use strict';
-/* ─────────────────────────────────────────────────────────────
- * Handshake shape (joiner-initiated, one shot per connection):
- *
- *   host   POST {a:'create'}                — claims the code, then waits
- *   host   GET  (one long-poll, held open)  — wakes the instant the offer lands
- *   joiner POST {a:'offer',  sdp+ice}       — complete blob, no trickle
- *   host   POST {a:'answer', sdp+ice}       — complete blob, no trickle
- *   joiner GET  (long-poll) → answer        — done. Worker is never used again.
- * ───────────────────────────────────────────────────────────── */
-// Signaling mailbox — a tiny Node server on my own box (see peek-node/README).
-// Must be HTTPS: the page itself is https, so browsers block plain-HTTP calls.
+/* ─────────────────────────────────────────────────────────────────────────
+ * WebRTC implemented strictly per Google's official documentation:
+ *   - codelab "Real time communication with WebRTC"
+ *     (codelabs.developers.google.com/codelabs/webrtc-web)
+ *   - the official webrtc/samples "pc1" and "trickle-ice" demos
+ *     (github.com/webrtc/samples)
+ * Function names, call order and logging mirror those samples verbatim.
+ * Only the signaling transport differs — the codelab states signaling
+ * methods are not specified by WebRTC — so the Socket.IO relay from the
+ * codelab is replaced by a two-client mailbox (POST delivers to the other
+ * peer's inbox; GET drains your own through one held-open long-poll).
+ * The host is pc1 (the codelab's caller: has the media, offers), the
+ * joiner is pc2 (the callee: answers).
+ * ───────────────────────────────────────────────────────────────────────── */
 const SIGNAL = 'https://peek-signal.duckdns.org:25789'; // ← match your DuckDNS subdomain
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I/1, O/0 lookalikes
 
@@ -217,18 +220,39 @@ function show(panel) {
 }
 
 /* ── state ── */
-let role = null;          // 'host' | 'joiner'
+let role = null;          // 'host' (caller, pc1) | 'joiner' (callee, pc2)
 let roomCode = null;
-let mySid = null;
-let pc = null;            // RTCPeerConnection
-let localStream = null;   // host only
-let polling = false;      // long-poll loop guard
+let polling = false;
+let pc1 = null;           // caller peer connection (host)
+let pc2 = null;           // callee peer connection (joiner)
+let localStream = null;   // host only — the display capture
 let statsT = null;
+let pendingIce = [];      // candidates that arrived before setRemoteDescription
 
-function setStatus(el, textEl, text, cls) {
-  if (textEl) textEl.textContent = text;
-  el.className = 'status' + (cls ? ' ' + cls : '');
-  el.hidden = false;
+const remoteVideo = document.getElementById('remoteVideo');
+
+/* Official pc1 sample, verbatim: */
+const offerOptions = {
+  offerToReceiveAudio: 1,
+  offerToReceiveVideo: 1
+};
+
+/* Official trickle-ice sample: iceServers are plain {urls, username,
+ * credential} objects. The codelab: the servers argument "is where you
+ * would specify your STUN and TURN servers". */
+let configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+/* Official pc1 sample, verbatim: */
+remoteVideo.addEventListener('loadedmetadata', function() {
+  console.log(`Remote video videoWidth: ${this.videoWidth}px,  videoHeight: ${this.videoHeight}px`);
+});
+
+remoteVideo.addEventListener('resize', () => {
+  console.log(`Remote video size changed to ${remoteVideo.videoWidth}x${remoteVideo.videoHeight} - Time since pageload ${performance.now().toFixed(0)}ms`);
+});
+
+function getName(pc) {
+  return (pc === pc1) ? 'pc1' : 'pc2';
 }
 
 function genCode() {
@@ -243,34 +267,27 @@ function genSid() {
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// One identity per page-load, so a re-join reclaims the same seat instead
+// of being read as a second joiner.
+const mySid = genSid();
+
 async function iceServers() {
   try {
     const r = await fetch(SIGNAL + '/ice');
     const d = await r.json();
     if (d && Array.isArray(d.iceServers) && d.iceServers.length) return d.iceServers;
   } catch (e) {}
+  // Same list the server would have returned.
   return [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }];
 }
 
-/* Wait until ICE gathering finishes so the SDP we send is complete —
- * no trickle, so the mailbox only ever sees one blob per side. Chrome
- * occasionally never fires 'complete' on a slow STUN timeout, hence the cap. */
-function waitForIce(pconn, timeoutMs = 3000) {
-  return new Promise(resolve => {
-    if (pconn.iceGatheringState === 'complete') return resolve();
-    const done = () => { clearTimeout(timer); pconn.removeEventListener('icegatheringstatechange', onChange); resolve(); };
-    const onChange = () => { if (pconn.iceGatheringState === 'complete') done(); };
-    const timer = setTimeout(done, timeoutMs);
-    pconn.addEventListener('icegatheringstatechange', onChange);
-  });
-}
-
-/* ── mailbox calls ── */
-async function post(action, data) {
+/* ── mailbox transport (codelab: "signaling methods/protocols aren't
+ * specified by WebRTC" — this replaces its Socket.IO relay) ── */
+async function post(action, msg) {
   const r = await fetch(`${SIGNAL}/room?code=${roomCode}&role=${role}&sid=${mySid}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ a: action, data }),
+    body: JSON.stringify({ a: action, msg }),
   });
   return r.json().catch(() => ({ error: 'network' }));
 }
@@ -287,15 +304,15 @@ const ERRORS = {
   unknown_host: 'Room expired — start the share again.',
   unknown_joiner: 'Session changed — join again.',
   not_host: 'Session mismatch — start the share again.',
+  not_joiner: 'Session mismatch.',
   network: 'Could not reach the signaling server.',
   bad_code: 'That code looks off.',
 };
 
-/* ───────────────────────── host ───────────────────────── */
+/* ───────────────────────── host: the caller (pc1) ───────────────────────── */
 
 async function startHost() {
   role = 'host';
-  mySid = genSid();
 
   let stream;
   try {
@@ -339,9 +356,49 @@ async function startHost() {
   hostLoop();
 }
 
-/* One long-poll at a time. Each offer that lands = a friend hitting Join:
- * build a complete answer, drop it in the mailbox, and go back to waiting
- * so a refreshed joiner can reconnect the same way. */
+/* Official pc1 sample, call(): create the caller connection and add the
+ * stream. Invoked when the room reports 'ready' (a friend joined). */
+function createCallerPc() {
+  console.log('RTCPeerConnection configuration:', configuration);
+  pc1 = new RTCPeerConnection(configuration);
+  console.log('Created local peer connection object pc1');
+  pc1.addEventListener('icecandidate', e => onIceCandidate(pc1, e));
+  pc1.addEventListener('iceconnectionstatechange', e => onIceStateChange(pc1, e));
+  pc1.addEventListener('connectionstatechange', () => onConnectionState(pc1)); // app UI layer
+  localStream.getTracks().forEach(track => pc1.addTrack(track, localStream));
+  console.log('Added local stream to pc1');
+}
+
+/* Official pc1 sample, call() offer half: */
+async function hostOffer() {
+  console.log('pc1 createOffer start');
+  try {
+    const offer = await pc1.createOffer(offerOptions);
+    await onCreateOfferSuccess(offer);
+  } catch (e) {
+    onCreateSessionDescriptionError(e);
+  }
+}
+
+/* Official pc1 sample, onCreateOfferSuccess — the setRemoteDescription on
+ * pc2 is replaced by sending the offer through the mailbox; pc2 performs
+ * its half when the offer arrives. */
+async function onCreateOfferSuccess(desc) {
+  console.log(`Offer from pc1\n${desc.sdp}`);
+  console.log('pc1 setLocalDescription start');
+  try {
+    await pc1.setLocalDescription(desc);
+    onSetLocalSuccess(pc1);
+  } catch (e) {
+    onSetSessionDescriptionError(e);
+    return;
+  }
+  const sent = await post('message', { t: 'offer', data: pc1.localDescription });
+  if (sent.error) setStatus($('hostStatus'), $('hostStatusText'), ERRORS[sent.error] || sent.error, 'bad');
+}
+
+/* Long-poll loop: holds one request open, dispatching room messages —
+ * the mailbox equivalent of the codelab's socket.on('message'). */
 async function hostLoop() {
   polling = true;
   while (polling && role === 'host' && roomCode) {
@@ -353,68 +410,28 @@ async function hostLoop() {
       continue;
     }
     if (d.error) {
-      // unknown_host: the DO evicted us (tab slept). Re-claim and keep going.
       if (d.error === 'unknown_host') {
+        // The room was evicted server-side — re-claim and keep going.
         const again = await post('create');
-        if (again.error) { setStatus($('hostStatus'), $('hostStatusText'), ERRORS[again.error] || again.error, 'bad'); await sleep(2000); }
+        if (again.error) {
+          setStatus($('hostStatus'), $('hostStatusText'), ERRORS[again.error] || again.error, 'bad');
+          await sleep(2000);
+        } else {
+          $('codeOut').textContent = roomCode;
+          setStatus($('hostStatus'), $('hostStatusText'), 'waiting for your friend…', 'wait');
+        }
         continue;
       }
       setStatus($('hostStatus'), $('hostStatusText'), ERRORS[d.error] || d.error, 'bad');
       await sleep(2000);
       continue;
     }
-    if (d.t === 'offer') {
-      await answerOffer(d.data);
-    }
-    // d.t === 'continue' → nothing yet, loop and hold another request open
+    (d.msgs || []).forEach(handleSignal);
   }
   polling = false;
 }
 
-async function answerOffer(offer) {
-  if (pc) { try { pc.close(); } catch (e) {} pc = null; }
-  setStatus($('hostStatus'), $('hostStatusText'), 'friend is connecting…', 'wait');
-
-  try {
-    pc = new RTCPeerConnection({ iceServers: await iceServers() });
-    pc.onconnectionstatechange = () => {
-      const s = pc && pc.connectionState;
-      if (s === 'connected') setStatus($('hostStatus'), $('hostStatusText'), 'LIVE — your friend sees your screen', 'live');
-      if (s === 'failed') setStatus($('hostStatus'), $('hostStatusText'), 'connection failed — your friend can refresh to retry', 'bad');
-    };
-    localStream.getTracks().forEach(t => {
-      const sender = pc.addTrack(t, localStream);
-      if (t.kind === 'video') tuneSender(sender);
-    });
-
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await waitForIce(pc);
-
-    const sent = await post('answer', pc.localDescription);
-    if (sent.error) setStatus($('hostStatus'), $('hostStatusText'), ERRORS[sent.error] || sent.error, 'bad');
-  } catch (e) {
-    setStatus($('hostStatus'), $('hostStatusText'), 'handshake failed — friend should refresh', 'bad');
-  }
-}
-
-/* Screen content barely changes between frames — keep resolution (sharp
- * text) over framerate, and cap the rate so a 4K monitor doesn't try to
- * saturate the viewer's connection. */
-function tuneSender(sender) {
-  try {
-    if (sender.track) sender.track.contentHint = 'detail';
-    const p = sender.getParameters();
-    p.degradationPreference = 'maintain-resolution';
-    p.encodings = [{ maxBitrate: 2500000, maxFramerate: 15 }];
-    sender.setParameters(p).catch(() => {});
-  } catch (e) {}
-}
-
-function stopHost() { teardown(); }
-
-/* ───────────────────────── joiner ───────────────────────── */
+/* ───────────────────────── joiner: the callee (pc2) ───────────────────────── */
 
 async function startJoin() {
   const code = $('codeInput').value.trim().toUpperCase();
@@ -424,48 +441,44 @@ async function startJoin() {
   }
   role = 'joiner';
   roomCode = code;
-  mySid = genSid();
   $('joinBtn').disabled = true;
-  setStatus($('joinStatus'), $('joinStatusText'), 'knocking…', 'wait');
+  setStatus($('joinStatus'), $('joinStatusText'), 'connecting…', 'wait');
+  joinLoop();
+}
 
+/* Official pc1 sample, callee side: create pc2, listen for 'track', then
+ * setRemoteDescription(offer) → createAnswer → setLocalDescription, and
+ * send the answer back through the mailbox. */
+function createCalleePc() {
+  console.log('RTCPeerConnection configuration:', configuration);
+  pc2 = new RTCPeerConnection(configuration);
+  console.log('Created remote peer connection object pc2');
+  pc2.addEventListener('icecandidate', e => onIceCandidate(pc2, e));
+  pc2.addEventListener('iceconnectionstatechange', e => onIceStateChange(pc2, e));
+  pc2.addEventListener('connectionstatechange', () => onConnectionState(pc2)); // app UI layer
+  pc2.addEventListener('track', gotRemoteStream);
+}
+
+async function joinAnswer(offer) {
+  if (pc2) { try { pc2.close(); } catch (e) {} }
+  pendingIce = [];
+  createCalleePc();
+
+  console.log('pc2 setRemoteDescription start');
   try {
-    pc = new RTCPeerConnection({ iceServers: await iceServers() });
-    pc.addTransceiver('video', { direction: 'recvonly' });
-    pc.addTransceiver('audio', { direction: 'recvonly' });
-    pc.ontrack = e => {
-      $('remoteVideo').srcObject = e.streams[0];
-      $('vidWrap').classList.add('show');
-      setStatus($('liveStatus'), $('liveStatusText'), 'connecting…', 'wait');
-      watchStats();
-    };
-    pc.onconnectionstatechange = () => {
-      const s = pc && pc.connectionState;
-      if (s === 'connected') setStatus($('liveStatus'), $('liveStatusText'), 'live', 'live');
-      if (s === 'failed') setStatus($('liveStatus'), $('liveStatusText'), 'connection failed — hit Join again', 'bad');
-    };
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await waitForIce(pc);
-
-    let sent = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      sent = await post('offer', pc.localDescription);
-      if (!sent.error) break;
-      if (sent.error === 'room_full') { await sleep(1500); continue; }
-      break;
-    }
-    if (sent.error) {
-      $('joinBtn').disabled = false;
-      setStatus($('joinStatus'), $('joinStatusText'), ERRORS[sent.error] || sent.error, 'bad');
-      return;
-    }
-
-    setStatus($('joinStatus'), $('joinStatusText'), 'waiting for the host to answer…', 'wait');
-    joinLoop();
+    await pc2.setRemoteDescription(new RTCSessionDescription(offer));
+    onSetRemoteSuccess(pc2);
   } catch (e) {
-    $('joinBtn').disabled = false;
-    setStatus($('joinStatus'), $('joinStatusText'), 'could not start — ' + (e.message || e), 'bad');
+    onSetSessionDescriptionError(e);
+    return;
+  }
+
+  console.log('pc2 createAnswer start');
+  try {
+    const answer = await pc2.createAnswer();
+    await onCreateAnswerSuccess(answer);
+  } catch (e) {
+    onCreateSessionDescriptionError(e);
   }
 }
 
@@ -473,7 +486,7 @@ async function joinLoop() {
   polling = true;
   const deadline = Date.now() + 45000;
   while (polling && role === 'joiner' && roomCode) {
-    if (pc && (pc.connectionState === 'connected')) { polling = false; break; }
+    if (pc2 && pc2.connectionState === 'connected') break; // signaling done — media flows directly
     if (Date.now() > deadline) {
       setStatus($('joinStatus'), $('joinStatusText'), 'the host never answered — they should check their tab', 'bad');
       $('joinBtn').disabled = false;
@@ -491,19 +504,149 @@ async function joinLoop() {
       $('joinBtn').disabled = false;
       break;
     }
-    if (d.t === 'answer') {
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(d.data));
-        setStatus($('joinStatus'), $('joinStatusText'), 'connecting…', 'wait');
-      } catch (e) {
-        setStatus($('joinStatus'), $('joinStatusText'), 'handshake failed — hit Join again', 'bad');
-        $('joinBtn').disabled = false;
-      }
-      break; // done with the worker, forever
-    }
-    // 'continue' → keep holding one request open
+    (d.msgs || []).forEach(handleSignal);
   }
   polling = false;
+}
+
+/* ───────────────── signaling message handlers (codelab socket.on('message')) ───────────────── */
+
+function handleSignal(msg) {
+  if (!msg) return;
+  switch (msg.t) {
+    case 'ready':
+      // Codelab room lifecycle: a new peer joined the room — the caller
+      // answers with a fresh offer.
+      if (role === 'host') {
+        if (pc1) { try { pc1.close(); } catch (e) {} pc1 = null; }
+        pendingIce = [];
+        setStatus($('hostStatus'), $('hostStatusText'), 'friend is connecting…', 'wait');
+        createCallerPc();
+        hostOffer();
+      }
+      break;
+    case 'offer':
+      // The caller offers; a callee receiving one here would be a protocol
+      // violation — ignore.
+      break;
+    case 'answer':
+      if (role === 'host') handleAnswer(msg.data);
+      break;
+    case 'ice':
+      handleCandidate(msg.data);
+      break;
+    case 'bye':
+      onPeerLeft();
+      break;
+  }
+}
+
+/* Official pc1 sample, onCreateAnswerSuccess second half: "pc1
+ * setRemoteDescription start". */
+async function handleAnswer(desc) {
+  if (!pc1) return;
+  console.log('pc1 setRemoteDescription start');
+  try {
+    await pc1.setRemoteDescription(new RTCSessionDescription(desc));
+    onSetRemoteSuccess(pc1);
+    flushIce();
+  } catch (e) {
+    onSetSessionDescriptionError(e);
+  }
+}
+
+/* Official pc1 sample, gotRemoteStream — verbatim. */
+function gotRemoteStream(e) {
+  if (remoteVideo.srcObject !== e.streams[0]) {
+    remoteVideo.srcObject = e.streams[0];
+    console.log('pc2 received remote stream');
+    setStatus($('liveStatus'), $('liveStatusText'), 'connecting…', 'wait');
+    watchStats();
+  }
+}
+
+/* Official pc1 sample, verbatim. */
+async function onIceCandidate(pc, event) {
+  console.log(`${getName(pc)} ICE candidate:\n${event.candidate ? event.candidate.candidate : '(null)'}`);
+  if (!event.candidate || !roomCode) return;
+  try {
+    await post('message', { t: 'ice', data: event.candidate });
+    onAddIceCandidateSuccess(pc);
+  } catch (e) {
+    onAddIceCandidateError(pc, e);
+  }
+}
+
+/* Codelab handleConnection, remote half: "const newIceCandidate = new
+ * RTCIceCandidate(iceCandidate); otherPeer.addIceCandidate(newIceCandidate)
+ * .then(...).catch(...)". Per spec, addIceCandidate needs a remote
+ * description first — candidates arriving early are queued. */
+function handleCandidate(data) {
+  if (!data) return;
+  const target = role === 'host' ? pc1 : pc2;
+  if (!target || !target.remoteDescription) { pendingIce.push(data); return; }
+  const newIceCandidate = new RTCIceCandidate(data);
+  target.addIceCandidate(newIceCandidate)
+    .then(() => onAddIceCandidateSuccess(target))
+    .catch(e => onAddIceCandidateError(target, e));
+}
+
+async function flushIce() {
+  const q = pendingIce;
+  pendingIce = [];
+  for (const data of q) handleCandidate(data);
+}
+
+/* Official pc1 sample, verbatim. */
+function onSetLocalSuccess(pc) {
+  console.log(`${getName(pc)} setLocalDescription complete`);
+}
+
+function onSetRemoteSuccess(pc) {
+  console.log(`${getName(pc)} setRemoteDescription complete`);
+}
+
+function onSetSessionDescriptionError(error) {
+  console.log(`Failed to set session description: ${error.toString()}`);
+}
+
+function onCreateSessionDescriptionError(error) {
+  console.log(`Failed to create session description: ${error.toString()}`);
+}
+
+function onAddIceCandidateSuccess(pc) {
+  console.log(`${getName(pc)} addIceCandidate success`);
+}
+
+function onAddIceCandidateError(pc, error) {
+  console.log(`${getName(pc)} failed to add ICE Candidate: ${error.toString()}`);
+}
+
+function onIceStateChange(pc, event) {
+  if (pc) {
+    console.log(`${getName(pc)} ICE state: ${pc.iceConnectionState}`);
+    console.log('ICE state change event: ', event);
+  }
+}
+
+/* ───────────────── app-layer glue (status badge, stats, teardown) ───────────────── */
+
+function setStatus(el, textEl, text, cls) {
+  if (textEl) textEl.textContent = text;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+  el.hidden = false;
+}
+
+function onConnectionState(pc) {
+  const state = pc.connectionState;
+  console.log(`${getName(pc)} connection state: ${state}`);
+  if (state === 'connected') {
+    if (pc === pc1) setStatus($('hostStatus'), $('hostStatusText'), 'LIVE — your friend sees your screen', 'live');
+    else setStatus($('liveStatus'), $('liveStatusText'), 'live', 'live');
+  } else if (state === 'failed') {
+    if (pc === pc1) setStatus($('hostStatus'), $('hostStatusText'), 'connection failed — your friend can refresh to retry', 'bad');
+    else setStatus($('liveStatus'), $('liveStatusText'), 'connection failed — hit Join again', 'bad');
+  }
 }
 
 /* "DIRECT" vs "RELAY" — the user cares that this is actually peer-to-peer. */
@@ -511,9 +654,9 @@ async function watchStats() {
   clearInterval(statsT);
   const badge = $('liveStatus'), label = $('liveStatusText');
   statsT = setInterval(async () => {
-    if (!pc) return clearInterval(statsT);
+    if (!pc2) return clearInterval(statsT);
     try {
-      const stats = await pc.getStats();
+      const stats = await pc2.getStats();
       let pair = null;
       stats.forEach(s => {
         if (s.type === 'candidate-pair' && s.state === 'succeeded' && (s.selected || s.nominated)) pair = s;
@@ -531,19 +674,30 @@ async function watchStats() {
   }, 2000);
 }
 
-/* ── teardown ── */
+function onPeerLeft() {
+  if (role === 'host') {
+    if (pc1) { try { pc1.close(); } catch (e) {} pc1 = null; }
+    setStatus($('hostStatus'), $('hostStatusText'), 'friend left — waiting for a new connection', 'wait');
+    // The room stays open: the next joiner triggers 'ready' again.
+  } else {
+    teardown();
+    setStatus($('joinStatus'), $('joinStatusText'), 'the host closed the share', 'bad');
+  }
+}
+
 function teardown() {
   polling = false;
   clearInterval(statsT);
-  if (pc) { try { pc.close(); } catch (e) {} pc = null; }
-  if (roomCode && mySid && role === 'host') {
-    // Best-effort: hand the DO back so the code frees up instantly.
+  if (pc1) { try { pc1.close(); } catch (e) {} pc1 = null; }
+  if (pc2) { try { pc2.close(); } catch (e) {} pc2 = null; }
+  pendingIce = [];
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (roomCode && role === 'host') {
     try { fetch(`${SIGNAL}/room?code=${roomCode}&role=host&sid=${mySid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a: 'close' }), keepalive: true }); } catch (e) {}
   }
-  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   $('previewVideo').srcObject = null;
   $('previewBox').classList.remove('show');
-  $('remoteVideo').srcObject = null;
+  remoteVideo.srcObject = null;
   $('vidWrap').classList.remove('show');
   document.body.classList.remove('hosting');
   if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
@@ -555,7 +709,10 @@ function teardown() {
   $('codeInput').value = '';
 }
 
-/* ── wiring ── */
+function stopHost() { teardown(); }
+
+/* ───────────────────────── wiring ───────────────────────── */
+
 $('optHost').onclick = startHost;
 $('optJoin').onclick = () => { show('joinView'); $('codeInput').focus(); };
 $('joinBtn').onclick = startJoin;
@@ -575,13 +732,21 @@ $('pipBtn').onclick = () => {
   else if (v.requestPictureInPicture) v.requestPictureInPicture().catch(() => {});
 };
 $('fsBtn').onclick = () => {
-  const v = $('remoteVideo');
-  if (v.requestFullscreen) v.requestFullscreen().catch(() => {});
+  if (remoteVideo.requestFullscreen) remoteVideo.requestFullscreen().catch(() => {});
 };
 $('codeInput').addEventListener('input', e => {
   e.target.value = e.target.value.toUpperCase().replace(new RegExp('[^' + CODE_ALPHABET + ']', 'g'), '').slice(0, 6);
 });
 $('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') startJoin(); });
+window.addEventListener('beforeunload', () => {
+  if (roomCode && role === 'host') {
+    try { fetch(`${SIGNAL}/room?code=${roomCode}&role=host&sid=${mySid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a: 'close' }), keepalive: true }); } catch (e) {}
+  }
+});
+
+/* Kick off the ICE server configuration fetch (trickle-ice sample builds
+ * its configuration from a servers list; ours arrives over HTTP). */
+iceServers().then(list => { configuration = { iceServers: list }; });
 </script>
 </body>
 </html>

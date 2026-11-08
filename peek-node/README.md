@@ -41,20 +41,24 @@ the panel** after a renewal to load the new cert.
 
 ## Protocol (for the curious)
 
-Everything is `/room?code=<CODE>&role=host|joiner&sid=<random>`:
+Everything is `/room?code=<CODE>&role=host|joiner&sid=<random>`. The WebRTC
+docs leave the signaling transport unspecified — this mailbox mirrors the
+codelab's room lifecycle (created / joined / ready / full) with a per-role
+inbox:
 
 | Call | Meaning |
 |---|---|
 | `POST {a:'create'}` | host claims the code |
-| `GET` (long-poll, ≤15s) | host waits for the joiner's offer |
-| `POST {a:'offer', data:{sdp…}}` | joiner deposits a complete offer |
-| `POST {a:'answer', data:{sdp…}}` | host deposits a complete answer |
-| `GET` (long-poll) | joiner collects the answer — done, server unused after this |
+| `GET` (long-poll, ≤15s) | drain your inbox; parks until a message arrives |
+| `POST {a:'message', msg:{t:'offer', data}}` | host posts its SDP offer (only the host may) |
+| `POST {a:'message', msg:{t:'answer', data}}` | joiner posts its SDP answer (only the joiner may) |
+| `POST {a:'message', msg:{t:'ice', data}}` | trickle an ICE candidate to the other peer |
+| `POST {a:'message', msg:{t:'bye'}}` | hang up |
 | `POST {a:'close'}` | host frees the code |
 
-SDP blobs carry their ICE candidates inline (non-trickle), so the mailbox
-only ever sees two deliveries per connection. `GET /ice` returns the STUN
-list. `GET /` is a health check.
+A fresh joiner registering clears any stale offer and pushes `ready` to the
+host, which responds with a fresh offer — the codelab's `ready` → re-offer
+flow. `GET /ice` returns the STUN/TURN list. `GET /` is a health check.
 
 ## HTTPS on a single non-standard port
 
