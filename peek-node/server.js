@@ -134,9 +134,9 @@ async function route(req, res) {
     return json(res, { ok: true, service: 'peek-signal-node' });
   }
 
-    if (url.pathname === '/ice') {
-      return json({ iceServers: [...ICE_SERVERS, ...turnIceServers()] });
-    }
+  if (url.pathname === '/ice') {
+    return json(res, { iceServers: [...ICE_SERVERS, ...turnIceServers()] });
+  }
 
   if (url.pathname === '/room') {
     const code = url.searchParams.get('code') || '';
