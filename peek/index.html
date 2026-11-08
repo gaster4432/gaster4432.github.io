@@ -141,6 +141,7 @@ body.hosting { padding-bottom: 130px; }
         <p>Got a code from someone? Type it in and watch their screen.</p>
       </span>
     </button>
+    <button class="btn" id="clearCacheBtn" title="Clear this site's stored caches and reload — for easy updates">🧹 Clear site cache & reload</button>
     <p class="hint" style="text-align:center">The connection is direct browser-to-browser over WebRTC. The server's only job is holding your code during the handshake — after that it's just two computers talking.</p>
   </div>
 
@@ -226,7 +227,6 @@ let polling = false;
 let pc1 = null;           // caller peer connection (host)
 let pc2 = null;           // callee peer connection (joiner)
 let localStream = null;   // host only — the display capture
-let statsT = null;
 let pendingIce = [];      // candidates that arrived before setRemoteDescription
 
 const remoteVideo = document.getElementById('remoteVideo');
@@ -563,7 +563,6 @@ function gotRemoteStream(e) {
     remoteVideo.srcObject = e.streams[0];
     console.log('pc2 received remote stream');
     setStatus($('liveStatus'), $('liveStatusText'), 'connecting…', 'wait');
-    watchStats();
   }
 }
 
@@ -651,31 +650,6 @@ function onConnectionState(pc) {
   }
 }
 
-/* "DIRECT" vs "RELAY" — the user cares that this is actually peer-to-peer. */
-async function watchStats() {
-  clearInterval(statsT);
-  const badge = $('liveStatus'), label = $('liveStatusText');
-  statsT = setInterval(async () => {
-    if (!pc2) return clearInterval(statsT);
-    try {
-      const stats = await pc2.getStats();
-      let pair = null;
-      stats.forEach(s => {
-        if (s.type === 'candidate-pair' && s.state === 'succeeded' && (s.selected || s.nominated)) pair = s;
-      });
-      if (!pair) stats.forEach(s => {
-        if (!pair && s.type === 'candidate-pair' && s.state === 'succeeded') pair = s;
-      });
-      if (!pair) return;
-      const lc = stats.get(pair.localCandidateId), rc = stats.get(pair.remoteCandidateId);
-      const relayed = (lc && lc.candidateType === 'relay') || (rc && rc.candidateType === 'relay');
-      const rtt = pair.currentRoundTripTime != null ? Math.round(pair.currentRoundTripTime * 1000) : null;
-      label.textContent = (relayed ? 'relayed' : 'direct P2P') + (rtt != null ? ' · ' + rtt + ' ms' : '');
-      badge.className = 'status ' + (relayed ? 'wait' : 'live');
-    } catch (e) {}
-  }, 2000);
-}
-
 function onPeerLeft() {
   if (role === 'host') {
     if (pc1) { try { pc1.close(); } catch (e) {} pc1 = null; }
@@ -689,7 +663,6 @@ function onPeerLeft() {
 
 function teardown() {
   polling = false;
-  clearInterval(statsT);
   if (pc1) { try { pc1.close(); } catch (e) {} pc1 = null; }
   if (pc2) { try { pc2.close(); } catch (e) {} pc2 = null; }
   pendingIce = [];
@@ -735,6 +708,29 @@ $('pipBtn').onclick = () => {
 };
 $('fsBtn').onclick = () => {
   if (remoteVideo.requestFullscreen) remoteVideo.requestFullscreen().catch(() => {});
+};
+/* Clear-everything-JS-can-reach: Cache Storage + service workers, then a
+ * reload. Deliberately does NOT touch localStorage — the chat app on this
+ * origin keeps real user data there. Browser/CDN HTTP-cache entries are
+ * expired by the server's own max-age, not by pages. */
+$('clearCacheBtn').onclick = async () => {
+  const btn = $('clearCacheBtn');
+  btn.disabled = true;
+  btn.textContent = 'Clearing…';
+  try {
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    if (navigator.serviceWorker) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    btn.textContent = 'Cleared — reloading…';
+  } catch (e) {
+    btn.textContent = 'Cache partially cleared';
+  }
+  setTimeout(() => location.reload(), 600);
 };
 $('codeInput').addEventListener('input', e => {
   e.target.value = e.target.value.toUpperCase().replace(new RegExp('[^' + CODE_ALPHABET + ']', 'g'), '').slice(0, 6);

@@ -92,29 +92,6 @@ free:**
    `https://peek-signal.duckdns.org:25789/` (firewall/port-forward on the
    host, if any).
 
-## TURN — when the direct P2P path fails
-
-STUN punches through most home routers, but **symmetric NAT / CGNAT defeats
-it** (common on rural US ISPs). Symptom: signaling succeeds, then the badge
-says *connection failed*. The fix is a TURN relay — media only uses it when
-the direct path fails, so it costs nothing on healthy links.
-
-1. Get TURN credentials — [Cloudflare Calls TURN](https://developers.cloudflare.com/calls/turn/)
-   (~1 TB/month free) or [metered.ca](https://www.metered.ca/tools/openrelay/)
-   (free tier). You end up with a set of `turn:`/`turns:` URLs, a username
-   and a secret.
-2. Prefix the start command with the three variables:
-
-   ```sh
-   TURN_URLS="turn:host:3478?transport=udp,turn:host:3478?transport=tcp,turns:host:443?transport=tcp" \
-   TURN_USERNAME="your-user" \
-   TURN_CREDENTIAL="your-secret" \
-   /usr/local/bin/node /home/container/server.js
-   ```
-
-3. Restart. `GET /ice` now hands the browsers the relay alongside STUN, and
-   the viewer's badge shows `relayed` whenever the connection took that path.
-
 ## Notes
 
 - Rooms live in RAM. A restart clears them; hosts just re-share their codes.
