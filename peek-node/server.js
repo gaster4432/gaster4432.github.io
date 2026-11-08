@@ -37,10 +37,23 @@ const TLS_CERT = process.env.TLS_CERT
   || firstExisting([path.join(HERE, 'fullchain.pem'), path.join(HERE, 'cert.pem'),
     path.join(process.cwd(), 'fullchain.pem'), path.join(process.cwd(), 'cert.pem')]);
 
+// STUN alone can't crack every NAT pair — symmetric NAT / CGNAT (common on
+// rural ISPs) defeats it, and the direct peer link fails even though the
+// signaling worked. When TURN credentials are configured below, relayed
+// candidates become a guaranteed fallback: media only relays when the direct
+// path fails. Get free TURN (Cloudflare Calls ~1TB/mo, or metered.ca) and set
+// TURN_URLS / TURN_USERNAME / TURN_CREDENTIAL in the start command.
 const ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
   { urls: 'stun:stun.cloudflare.com:3478' },
 ];
+if (process.env.TURN_URLS) {
+  ICE_SERVERS.push({
+    urls: process.env.TURN_URLS.split(',').map((s) => s.trim()).filter(Boolean),
+    username: process.env.TURN_USERNAME || '',
+    credential: process.env.TURN_CREDENTIAL || '',
+  });
+}
 
 // The page lives on https://gaster4432.github.io, so this API must answer
 // CORS or the browser eats every request. Wide open is fine: the only thing
