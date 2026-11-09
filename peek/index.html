@@ -41,6 +41,13 @@ h1 {
 .opt h3 { font-size: 16px; font-weight: 600; margin-bottom: 3px; }
 .opt p { font-size: 13px; color: rgba(255,255,255,0.55); line-height: 1.45; }
 
+/* ── host audio options ── */
+.audio-options { border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; }
+.audio-options label { display: block; font-size: 13px; margin-bottom: 10px; }
+.audio-options select { width: 100%; margin-top: 6px; padding: 9px; border-radius: 8px; background: #18181b; color: #e8e8ed; border: 1px solid rgba(255,255,255,0.15); }
+.audio-options a { color: #c4b5fd; }
+.audio-options [hidden] { display: none; }
+
 /* ── panels ── */
 .panel { width: 100%; max-width: 560px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; padding: 28px; margin-top: 4vh; display: none; }
 .panel.show { display: block; }
@@ -123,6 +130,25 @@ body.hosting { padding-bottom: 130px; }
     <a class="back-link" href="/">← home</a>
   </div>
   <div class="menu" id="menu">
+    <div class="audio-options">
+      <label><input type="checkbox" id="shareAudio" checked> Share desktop audio</label>
+      <div id="audioSettings">
+        <label for="audioMode">Capture method
+          <select id="audioMode">
+            <option value="native">Browser screen-share audio</option>
+            <option value="virtual">Firefox / Steam Deck — virtual desktop input</option>
+          </select>
+        </label>
+        <div id="virtualAudioSettings" hidden>
+          <p class="hint">Create the <strong>Desktop_Audio</strong> input using the <a href="steam-deck-audio.md" target="_blank" rel="noopener">Steam Deck setup guide</a>. Firefox may ask for microphone permission to list inputs; Peek stops that permission-check stream immediately.</p>
+          <button class="btn" id="findAudioBtn">Find desktop audio input</button>
+          <label for="audioInput">Desktop audio input
+            <select id="audioInput"><option value="">Choose Desktop_Audio after setup</option></select>
+          </label>
+          <p class="hint" id="audioSetupStatus" role="status">No input selected. Your physical microphone is not used as a fallback.</p>
+        </div>
+      </div>
+    </div>
     <button class="opt" id="optHost">
       <span class="oi" aria-hidden="true">🖥️</span>
       <span><h3>Host a screen share</h3><p>Pick a window, get a code, keep the tab open. Your friend watches live.</p></span>
@@ -143,6 +169,7 @@ body.hosting { padding-bottom: 130px; }
       <button class="btn danger" id="stopBtn">⏹ Stop sharing</button>
       <button class="btn" id="hostBack">Back</button>
     </div>
+    <p class="hint" id="hostAudioNote" role="status"></p>
     <p class="hint">Keep this tab open while your friend watches. The preview in the corner (or popped out) shows exactly what they see.</p>
   </div>
   <div class="panel" id="joinView">
@@ -179,6 +206,80 @@ let session = null;
 let pc1 = null;
 let pc2 = null;
 let hostStarting = false;
+let findingAudio = false;
+let desktopInputs = new Set();
+
+function updateAudioOptions() {
+  $('audioSettings').hidden = !$('shareAudio').checked;
+  $('virtualAudioSettings').hidden = $('audioMode').value !== 'virtual';
+}
+
+async function findDesktopAudio() {
+  if (findingAudio) return;
+  findingAudio = true;
+  $('findAudioBtn').disabled = true;
+  $('audioSetupStatus').textContent = 'Looking for the desktop audio input…';
+  let permissionStream;
+  try {
+    let inputs = await navigator.mediaDevices.enumerateDevices();
+    if (!inputs.some(d => d.kind === 'audioinput' && d.label)) {
+      // Device labels require permission. Never send this temporary input.
+      permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      permissionStream.getTracks().forEach(t => t.stop());
+      inputs = await navigator.mediaDevices.enumerateDevices();
+    }
+    const devices = inputs.filter(d => d.kind === 'audioinput' && /desktop[ _-]?audio|monitor of|\.monitor/i.test(d.label));
+    desktopInputs = new Set(devices.map(d => d.deviceId));
+    const selected = $('audioInput').value;
+    $('audioInput').replaceChildren(new Option('Choose a desktop audio input', ''));
+    devices.forEach(d => $('audioInput').add(new Option(d.label, d.deviceId)));
+    if (desktopInputs.has(selected)) $('audioInput').value = selected;
+    $('audioSetupStatus').textContent = devices.length
+      ? 'Choose the Desktop_Audio input. Only the selected desktop input is shared.'
+      : 'Desktop_Audio not found. Run the setup command on the Deck, then Find again. Video still works without audio.';
+  } catch (e) {
+    $('audioSetupStatus').textContent = e.name === 'NotAllowedError'
+      ? 'Input permission denied. No microphone or desktop audio is being shared.'
+      : `Could not list desktop audio inputs: ${e.message}`;
+  } finally {
+    permissionStream?.getTracks().forEach(t => t.stop());
+    findingAudio = false;
+    $('findAudioBtn').disabled = false;
+  }
+}
+
+async function attachHostAudio(s) {
+  const note = text => { if (current(s)) $('hostAudioNote').textContent = text; };
+  if (!s.audio.enabled) { note('Desktop audio is off — video only.'); return; }
+  if (s.audio.mode === 'native') {
+    note(s.stream.getAudioTracks().length
+      ? 'Audio captured from the browser-selected screen-share source.'
+      : 'Video only: the browser did not provide screen audio. Firefox on Steam Deck needs the virtual desktop input option.');
+    return;
+  }
+  if (!s.audio.deviceId || !desktopInputs.has(s.audio.deviceId)) {
+    note('Video only: no desktop audio input selected. Set up Desktop_Audio and choose it before hosting.');
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: {
+      deviceId: { exact: s.audio.deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+    } });
+    if (!current(s)) { stream.getTracks().forEach(t => t.stop()); return; }
+    const tracks = stream.getAudioTracks();
+    if (!tracks.length) { stream.getTracks().forEach(t => t.stop()); note('Video only: the desktop input supplied no audio track.'); return; }
+    s.audioStream = stream;
+    tracks.forEach(track => {
+      s.stream.addTrack(track);
+      track.addEventListener('ended', () => note('Desktop audio input stopped — video sharing continues.'));
+    });
+    note(`Desktop audio captured: ${tracks[0].label || 'selected virtual input'}. This is not a physical microphone.`);
+  } catch (e) {
+    note(e.name === 'NotAllowedError'
+      ? 'Desktop audio permission denied — video sharing continues without audio.'
+      : `Desktop audio unavailable (${e.message}) — video sharing continues without audio.`);
+  }
+}
 
 const ERRORS = {
   no_host: 'No room with that code — the host may have stopped sharing.',
@@ -216,7 +317,7 @@ function status(s, text, cls = 'wait') {
 }
 function newSession(role, code) {
   return { role, code, attempt: genSid(), negotiation: 0, controller: new AbortController(),
-    pc: null, stream: null, remoteStream: new MediaStream(), ice: [], outgoingIce: [],
+    pc: null, stream: null, audioStream: null, remoteStream: new MediaStream(), ice: [], outgoingIce: [],
     localSent: false, offerHandled: false, answerHandled: false, stage: 'signaling', timer: null };
 }
 async function request(s, path, body, timeout = 10000) {
@@ -277,6 +378,7 @@ function dispose(s, notify = true) {
   s.controller.abort();
   closePc(s);
   s.stream?.getTracks().forEach(t => t.stop());
+  s.audioStream?.getTracks().forEach(t => t.stop());
 }
 function fail(s, error) {
   if (!current(s)) return;
@@ -421,13 +523,22 @@ async function startHost() {
   hostStarting = true;
   dispose(session);
   const s = session = newSession('host', null);
+  s.audio = { enabled: $('shareAudio').checked, mode: $('audioMode').value, deviceId: $('audioInput').value };
   show('hostView');
   $('codeOut').textContent = '······';
+  $('hostAudioNote').textContent = '';
   status(s, 'pick a screen to share…');
   try {
-    s.stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: true });
+    const nativeAudio = s.audio.enabled && s.audio.mode === 'native';
+    s.stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 15, max: 30 } }, audio: nativeAudio,
+      systemAudio: nativeAudio ? 'include' : 'exclude',
+    });
     if (!current(s)) { s.stream.getTracks().forEach(t => t.stop()); return; }
+    if (!nativeAudio) s.stream.getAudioTracks().forEach(t => { t.stop(); s.stream.removeTrack(t); });
     s.stream.getVideoTracks()[0].addEventListener('ended', () => { if (current(s)) teardown(); });
+    await attachHostAudio(s);
+    if (!current(s)) return;
     $('previewVideo').srcObject = s.stream;
     $('previewBox').classList.add('show');
     status(s, 'asking the server for a code…');
@@ -477,12 +588,12 @@ async function playRemote(s) {
   } catch (e) {
     if (!current(s)) return;
     if (e.name === 'NotAllowedError') $('playBtn').hidden = false;
-    else fail(s, new Error(`Video playback failed: ${e.message}`));
+    else if (e.name !== 'AbortError') fail(s, new Error(`Video playback failed: ${e.message}`));
   }
 }
 function gotRemoteStream(s, e) {
   if (!s.remoteStream.getTracks().includes(e.track)) s.remoteStream.addTrack(e.track);
-  remoteVideo.srcObject = s.remoteStream;
+  if (remoteVideo.srcObject !== s.remoteStream) remoteVideo.srcObject = s.remoteStream;
   $('vidWrap').classList.add('show');
   playRemote(s);
 }
@@ -500,6 +611,10 @@ function teardown() {
   $('retryBtn').disabled = false;
   $('codeInput').value = '';
 }
+$('shareAudio').onchange = updateAudioOptions;
+$('audioMode').onchange = updateAudioOptions;
+$('findAudioBtn').onclick = findDesktopAudio;
+updateAudioOptions();
 $('optHost').onclick = startHost;
 $('optJoin').onclick = () => { show('joinView'); $('codeInput').focus(); };
 $('joinBtn').onclick = startJoin;
