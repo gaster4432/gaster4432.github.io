@@ -487,6 +487,21 @@ async function joinAnswer(offer) {
   }
 }
 
+/* Official pc1 sample, onCreateAnswerSuccess — the pc1.setRemoteDescription
+ * half is handled by the host when the answer arrives through the mailbox. */
+async function onCreateAnswerSuccess(desc) {
+  console.log(`Answer from pc2:\n${desc.sdp}`);
+  console.log('pc2 setLocalDescription start');
+  try {
+    await pc2.setLocalDescription(desc);
+    onSetLocalSuccess(pc2);
+  } catch (e) {
+    onSetSessionDescriptionError(e);
+    return;
+  }
+  await post('message', { t: 'answer', data: pc2.localDescription });
+}
+
 async function joinLoop() {
   polling = true;
   const deadline = Date.now() + 45000;
