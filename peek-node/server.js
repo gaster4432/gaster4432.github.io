@@ -13,7 +13,7 @@ import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRoom, handleAction, poll, CODE_RE, MAX_SDP_CHARS } from './mailbox.js';
+import { createRoom, handleAction, poll, CODE_RE, MAX_SDP_CHARS, PROTOCOL_VERSION } from './mailbox.js';
 
 const PORT = Number(process.env.PORT || 25789);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -57,10 +57,13 @@ function json(res, data, status = 200) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
     ...CORS,
   });
   res.end(body);
 }
+
+const TOO_BIG = Symbol('too_big');
 
 function readBody(req) {
   return new Promise((resolve) => {
@@ -69,18 +72,20 @@ function readBody(req) {
     req.on('data', (c) => {
       size += c.length;
       if (size > MAX_BODY) {
-        resolve(null); // too big — handled by the caller as a 413
-        req.destroy();
-        return;
+        chunks.length = 0;
+        resolve(TOO_BIG);
+        return; // drain the request without destroying the response socket
       }
       chunks.push(c);
     });
     req.on('end', () => {
+      if (size > MAX_BODY) return;
       if (!chunks.length) return resolve({});
       try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        resolve(body && typeof body === 'object' && !Array.isArray(body) ? body : undefined);
       } catch {
-        resolve(undefined); // unparsable — 400
+        resolve(undefined);
       }
     });
     req.on('error', () => resolve(undefined));
@@ -91,7 +96,7 @@ async function route(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'local'}`);
 
   if (url.pathname === '/') {
-    return json(res, { ok: true, service: 'peek-signal-node' });
+    return json(res, { ok: true, service: 'peek-signal-node', protocol: PROTOCOL_VERSION });
   }
 
   if (url.pathname === '/ice') {
@@ -118,13 +123,21 @@ async function route(req, res) {
     }
 
     if (req.method === 'GET') {
-      const out = await poll(code, role, sid);
-      return json(res, out.data, out.status);
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      res.once('close', cancel);
+      try {
+        const out = await poll(code, role, sid, url.searchParams.get('attempt'), controller.signal);
+        if (!res.destroyed && !controller.signal.aborted) return json(res, out.data, out.status);
+      } finally {
+        res.removeListener('close', cancel);
+      }
+      return;
     }
 
     if (req.method === 'POST') {
       const body = await readBody(req);
-      if (body === null) return json(res, { error: 'too_big' }, 413);
+      if (body === TOO_BIG) return json(res, { error: 'too_big' }, 413);
       if (body === undefined) return json(res, { error: 'invalid_json' }, 400);
       const out = handleAction(code, role, sid, body);
       return json(res, out.data, out.status);

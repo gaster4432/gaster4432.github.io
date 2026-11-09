@@ -86,6 +86,7 @@ h1 {
 .status.wait .dot { background: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,0.7); }
 .status.live .dot { background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,0.7); }
 .status.bad .dot { background: #ff5d7a; box-shadow: 0 0 8px rgba(255,93,122,0.7); }
+.status[hidden], .btn[hidden] { display: none; }
 .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
 
 /* ── remote video (joiner) ── */
@@ -105,10 +106,7 @@ h1 {
   box-shadow: 0 10px 34px rgba(0,0,0,0.55); background: #000; display: block;
 }
 #previewBox .vid-cap { font-size: 11px; color: rgba(255,255,255,0.5); text-align: right; }
-
-/* host page keeps room for the floating preview */
 body.hosting { padding-bottom: 130px; }
-
 @media (max-width: 640px) {
   .panel { padding: 20px; }
   .menu { margin-top: 4vh; }
@@ -124,35 +122,22 @@ body.hosting { padding-bottom: 130px; }
     </div>
     <a class="back-link" href="/">← home</a>
   </div>
-
-  <!-- ── menu ── -->
   <div class="menu" id="menu">
     <button class="opt" id="optHost">
       <span class="oi" aria-hidden="true">🖥️</span>
-      <span>
-        <h3>Host a screen share</h3>
-        <p>Pick a window, get a code, keep the tab open. Your friend watches live.</p>
-      </span>
+      <span><h3>Host a screen share</h3><p>Pick a window, get a code, keep the tab open. Your friend watches live.</p></span>
     </button>
     <button class="opt" id="optJoin">
       <span class="oi" aria-hidden="true">👀</span>
-      <span>
-        <h3>Join a screen share</h3>
-        <p>Got a code from someone? Type it in and watch their screen.</p>
-      </span>
+      <span><h3>Join a screen share</h3><p>Got a code from someone? Type it in and watch their screen.</p></span>
     </button>
     <button class="btn" id="clearCacheBtn" title="Clear this site's stored caches and reload — for easy updates">🧹 Clear site cache & reload</button>
-    <p class="hint" style="text-align:center">The connection is direct browser-to-browser over WebRTC. The server's only job is holding your code during the handshake — after that it's just two computers talking.</p>
+    <p class="hint" style="text-align:center">Video goes directly between browsers over WebRTC. The server exchanges connection details and keeps your room open; it never carries or records your screen.</p>
   </div>
-
-  <!-- ── host ── -->
   <div class="panel" id="hostView">
     <h2>Your code — give it to your friend</h2>
-    <div class="code-row">
-      <div class="code" id="codeOut">······</div>
-      <button class="btn" id="copyBtn" title="Copy code">Copy</button>
-    </div>
-    <div><span class="status wait" id="hostStatus"><span class="dot"></span><span id="hostStatusText">connecting…</span></span></div>
+    <div class="code-row"><div class="code" id="codeOut">······</div><button class="btn" id="copyBtn" title="Copy code">Copy</button></div>
+    <div><span class="status wait" id="hostStatus" role="status"><span class="dot"></span><span id="hostStatusText">connecting…</span></span></div>
     <div class="actions">
       <button class="btn" id="pipBtn" title="Float the preview over your other windows">⧉ Pop out preview</button>
       <button class="btn danger" id="stopBtn">⏹ Stop sharing</button>
@@ -160,610 +145,391 @@ body.hosting { padding-bottom: 130px; }
     </div>
     <p class="hint">Keep this tab open while your friend watches. The preview in the corner (or popped out) shows exactly what they see.</p>
   </div>
-
-  <!-- ── join ── -->
   <div class="panel" id="joinView">
     <h2>Enter the code</h2>
     <input id="codeInput" maxlength="6" autocomplete="off" spellcheck="false" placeholder="······" aria-label="Room code">
-    <div class="actions">
-      <button class="btn primary" id="joinBtn">Join</button>
-      <button class="btn" id="joinBack">Back</button>
-    </div>
-    <div style="margin-top:14px"><span class="status" id="joinStatus" hidden><span class="dot"></span><span id="joinStatusText"></span></span></div>
+    <div class="actions"><button class="btn primary" id="joinBtn">Join</button><button class="btn" id="joinBack">Back</button></div>
+    <div style="margin-top:14px"><span class="status" id="joinStatus" role="status" hidden><span class="dot"></span><span id="joinStatusText"></span></span></div>
     <p class="hint">The host has to keep their tab open. If it says no room, check the code — they may have stopped sharing.</p>
   </div>
-
-  <!-- ── remote stream (joiner) ── -->
   <div class="vid-wrap" id="vidWrap">
     <video id="remoteVideo" autoplay playsinline></video>
     <div class="vid-bar">
-      <span class="status live" id="liveStatus"><span class="dot"></span><span id="liveStatusText">live</span></span>
+      <span class="status live" id="liveStatus" role="status"><span class="dot"></span><span id="liveStatusText">live</span></span>
+      <button class="btn" id="playBtn" hidden>▶ Play video / sound</button>
       <button class="btn" id="fsBtn">⛶ Fullscreen</button>
+      <button class="btn" id="retryBtn">Retry connection</button>
       <button class="btn danger" id="leaveBtn">Leave</button>
     </div>
   </div>
 </div>
-
-<!-- ── host's own floating preview ── -->
-<div id="previewBox">
-  <video id="previewVideo" autoplay muted playsinline></video>
-  <div class="vid-cap">what your friend sees</div>
-</div>
-
+<div id="previewBox"><video id="previewVideo" autoplay muted playsinline></video><div class="vid-cap">what your friend sees</div></div>
 <script>
 'use strict';
-/* ─────────────────────────────────────────────────────────────────────────
- * WebRTC implemented strictly per Google's official documentation:
- *   - codelab "Real time communication with WebRTC"
- *     (codelabs.developers.google.com/codelabs/webrtc-web)
- *   - the official webrtc/samples "pc1" and "trickle-ice" demos
- *     (github.com/webrtc/samples)
- * Function names, call order and logging mirror those samples verbatim.
- * Only the signaling transport differs — the codelab states signaling
- * methods are not specified by WebRTC — so the Socket.IO relay from the
- * codelab is replaced by a two-client mailbox (POST delivers to the other
- * peer's inbox; GET drains your own through one held-open long-poll).
- * The host is pc1 (the codelab's caller: has the media, offers), the
- * joiner is pc2 (the callee: answers).
- * ───────────────────────────────────────────────────────────────────────── */
-const SIGNAL = 'https://peek-signal.duckdns.org:25789'; // ← match your DuckDNS subdomain
-const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I/1, O/0 lookalikes
-
+/* WebRTC call order follows the official webrtc/samples pc1 example.
+ * Signaling is a separate Node mailbox; each join owns its connection and
+ * negotiation so a stopped call cannot mutate the next one. */
+const SIGNAL = 'https://peek-signal.duckdns.org:25789';
+const PROTOCOL_VERSION = 4;
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const $ = id => document.getElementById(id);
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const remoteVideo = $('remoteVideo');
+const mySid = genSid();
+let session = null;
+let pc1 = null;
+let pc2 = null;
+let hostStarting = false;
 
-/* ── screens ── */
+const ERRORS = {
+  no_host: 'No room with that code — the host may have stopped sharing.',
+  room_full: 'That room already has a viewer.',
+  unknown_host: 'Room expired or the server restarted — stop and start sharing for a new code.',
+  unknown_joiner: 'This viewer session was replaced — retry the connection.',
+  not_host: 'Host session mismatch — start sharing again.',
+  not_joiner: 'Viewer session mismatch — retry the connection.',
+  stale_negotiation: 'The connection changed — retry the connection.',
+  network: 'Could not reach the signaling server.',
+  protocol_mismatch: 'The page and signaling server need the same Peek update.',
+  bad_code: 'That code looks off — it is 6 letters/numbers.',
+};
+
+function genSid() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
+}
+function current(s) { return session === s && !s.controller.signal.aborted; }
 function show(panel) {
   $('menu').style.display = panel === 'menu' ? '' : 'none';
   ['hostView', 'joinView'].forEach(p => $(p).classList.toggle('show', p === panel));
   document.body.classList.toggle('hosting', panel === 'hostView');
   if (panel !== 'joinView') $('vidWrap').classList.remove('show');
 }
-
-/* ── state ── */
-let role = null;          // 'host' (caller, pc1) | 'joiner' (callee, pc2)
-let roomCode = null;
-let polling = false;
-let pc1 = null;           // caller peer connection (host)
-let pc2 = null;           // callee peer connection (joiner)
-let localStream = null;   // host only — the display capture
-let pendingIce = [];      // candidates that arrived before setRemoteDescription
-
-const remoteVideo = document.getElementById('remoteVideo');
-
-/* Official pc1 sample, verbatim: */
-const offerOptions = {
-  offerToReceiveAudio: 1,
-  offerToReceiveVideo: 1
-};
-
-/* Official trickle-ice sample: iceServers are plain {urls, username,
- * credential} objects. The codelab: the servers argument "is where you
- * would specify your STUN and TURN servers". */
-let configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-
-/* Official pc1 sample, verbatim: */
-remoteVideo.addEventListener('loadedmetadata', function() {
-  console.log(`Remote video videoWidth: ${this.videoWidth}px,  videoHeight: ${this.videoHeight}px`);
-});
-
-remoteVideo.addEventListener('resize', () => {
-  console.log(`Remote video size changed to ${remoteVideo.videoWidth}x${remoteVideo.videoHeight} - Time since pageload ${performance.now().toFixed(0)}ms`);
-});
-
-function getName(pc) {
-  return (pc === pc1) ? 'pc1' : 'pc2';
-}
-
-function genSid() {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-}
-
-// One identity per page-load, so a re-join reclaims the same seat instead
-// of being read as a second joiner.
-const mySid = genSid();
-
-async function iceServers() {
-  try {
-    const r = await fetch(SIGNAL + '/ice');
-    const d = await r.json();
-    if (d && Array.isArray(d.iceServers) && d.iceServers.length) return d.iceServers;
-  } catch (e) {}
-  // Same list the server would have returned.
-  return [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }];
-}
-
-/* ── mailbox transport (codelab: "signaling methods/protocols aren't
- * specified by WebRTC" — this replaces its Socket.IO relay) ── */
-async function post(action, msg) {
-  const r = await fetch(`${SIGNAL}/room?code=${roomCode}&role=${role}&sid=${mySid}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ a: action, msg }),
-  });
-  return r.json().catch(() => ({ error: 'network' }));
-}
-
-async function longPollOnce() {
-  const r = await fetch(`${SIGNAL}/room?code=${roomCode}&role=${role}&sid=${mySid}`);
-  return r.json().catch(() => ({ error: 'network' }));
-}
-
-const ERRORS = {
-  no_host: 'No room with that code — is your friend sharing?',
-  room_full: 'That room is busy — the host can have one viewer.',
-  host_already: 'Another host tab is open — close it or wait a few seconds.',
-  unknown_host: 'Room expired — start the share again.',
-  unknown_joiner: 'Session changed — join again.',
-  not_host: 'Session mismatch — start the share again.',
-  not_joiner: 'Session mismatch.',
-  network: 'Could not reach the signaling server.',
-  bad_code: 'That code looks off.',
-};
-
-/* ───────────────────────── host: the caller (pc1) ───────────────────────── */
-
-async function startHost() {
-  role = 'host';
-
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: 15, max: 30 } },
-      audio: true,
-    });
-  } catch (eFirst) {
-    try {
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: true }); // Firefox/silent screens
-    } catch (e) {
-      setStatus($('hostStatus'), $('hostStatusText'), 'screen pick cancelled', 'bad');
-      role = null;
-      return;
-    }
-  }
-  localStream = stream;
-  stream.getVideoTracks()[0].addEventListener('ended', stopHost);
-
-  $('previewVideo').srcObject = stream;
-  $('previewBox').classList.add('show');
-  show('hostView');
-  $('codeOut').textContent = '······';
-  setStatus($('hostStatus'), $('hostStatusText'), 'getting a code…', 'wait');
-
-  roomCode = null;
-  setStatus($('hostStatus'), $('hostStatusText'), 'asking the server for a code…', 'wait');
-  // THE SERVER issues the code — the client never invents one.
-  let created = null;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    created = await fetch(`${SIGNAL}/room/create?role=host&sid=${mySid}`, { method: 'POST' })
-      .then(r => r.json())
-      .catch(() => ({ error: 'network' }));
-    if (!created.error) break;
-    if (created.error === 'host_already') { await sleep(1500); continue; }
-    break;
-  }
-  if (created.error) {
-    setStatus($('hostStatus'), $('hostStatusText'), ERRORS[created.error] || created.error, 'bad');
-    return;
-  }
-
-  roomCode = created.code;
-  $('codeOut').textContent = roomCode;
-  setStatus($('hostStatus'), $('hostStatusText'), 'waiting for your friend…', 'wait');
-
-  // Official pc1 sample: the caller offers as soon as the call starts. The
-  // offer waits in the mailbox for the joiner — not the other way around.
-  createCallerPc();
-  hostOffer();
-  hostLoop();
-}
-
-/* Official pc1 sample, call(): create the caller connection and add the
- * stream. Invoked when the room reports 'ready' (a friend joined). */
-function createCallerPc() {
-  console.log('RTCPeerConnection configuration:', configuration);
-  pc1 = new RTCPeerConnection(configuration);
-  console.log('Created local peer connection object pc1');
-  pc1.addEventListener('icecandidate', e => onIceCandidate(pc1, e));
-  pc1.addEventListener('iceconnectionstatechange', e => onIceStateChange(pc1, e));
-  pc1.addEventListener('connectionstatechange', () => onConnectionState(pc1)); // app UI layer
-  localStream.getTracks().forEach(track => pc1.addTrack(track, localStream));
-  console.log('Added local stream to pc1');
-}
-
-/* Official pc1 sample, call() offer half: */
-async function hostOffer() {
-  console.log('pc1 createOffer start');
-  try {
-    const offer = await pc1.createOffer(offerOptions);
-    await onCreateOfferSuccess(offer);
-  } catch (e) {
-    onCreateSessionDescriptionError(e);
-  }
-}
-
-/* Official pc1 sample, onCreateOfferSuccess — the setRemoteDescription on
- * pc2 is replaced by sending the offer through the mailbox; pc2 performs
- * its half when the offer arrives. */
-async function onCreateOfferSuccess(desc) {
-  console.log(`Offer from pc1\n${desc.sdp}`);
-  console.log('pc1 setLocalDescription start');
-  try {
-    await pc1.setLocalDescription(desc);
-    onSetLocalSuccess(pc1);
-  } catch (e) {
-    onSetSessionDescriptionError(e);
-    return;
-  }
-  const sent = await post('message', { t: 'offer', data: pc1.localDescription });
-  if (sent.error) setStatus($('hostStatus'), $('hostStatusText'), ERRORS[sent.error] || sent.error, 'bad');
-}
-
-/* Long-poll loop: holds one request open, dispatching room messages —
- * the mailbox equivalent of the codelab's socket.on('message'). */
-async function hostLoop() {
-  polling = true;
-  while (polling && role === 'host' && roomCode) {
-    let d;
-    try {
-      d = await longPollOnce();
-    } catch (e) {
-      await sleep(2000);
-      continue;
-    }
-    if (d.error) {
-      if (d.error === 'unknown_host') {
-        // The room was evicted server-side — re-claim and keep going.
-        const again = await post('create');
-        if (again.error) {
-          setStatus($('hostStatus'), $('hostStatusText'), ERRORS[again.error] || again.error, 'bad');
-          await sleep(2000);
-        } else {
-          $('codeOut').textContent = roomCode;
-          setStatus($('hostStatus'), $('hostStatusText'), 'waiting for your friend…', 'wait');
-        }
-        continue;
-      }
-      setStatus($('hostStatus'), $('hostStatusText'), ERRORS[d.error] || d.error, 'bad');
-      await sleep(2000);
-      continue;
-    }
-    (d.msgs || []).forEach(handleSignal);
-  }
-  polling = false;
-}
-
-/* ───────────────────────── joiner: the callee (pc2) ───────────────────────── */
-
-async function startJoin() {
-  const code = $('codeInput').value.trim().toUpperCase();
-  if (!/^[A-Z0-9]{4,10}$/.test(code)) {
-    setStatus($('joinStatus'), $('joinStatusText'), 'That code looks off — it\'s 6 letters/numbers.', 'bad');
-    return;
-  }
-  role = 'joiner';
-  roomCode = code;
-  $('joinBtn').disabled = true;
-  setStatus($('joinStatus'), $('joinStatusText'), 'connecting…', 'wait');
-  joinLoop();
-}
-
-/* Official pc1 sample, callee side: create pc2, listen for 'track', then
- * setRemoteDescription(offer) → createAnswer → setLocalDescription, and
- * send the answer back through the mailbox. */
-function createCalleePc() {
-  console.log('RTCPeerConnection configuration:', configuration);
-  pc2 = new RTCPeerConnection(configuration);
-  console.log('Created remote peer connection object pc2');
-  pc2.addEventListener('icecandidate', e => onIceCandidate(pc2, e));
-  pc2.addEventListener('iceconnectionstatechange', e => onIceStateChange(pc2, e));
-  pc2.addEventListener('connectionstatechange', () => onConnectionState(pc2)); // app UI layer
-  pc2.addEventListener('track', gotRemoteStream);
-}
-
-async function joinAnswer(offer) {
-  if (pc2) { try { pc2.close(); } catch (e) {} }
-  pendingIce = [];
-  createCalleePc();
-
-  console.log('pc2 setRemoteDescription start');
-  try {
-    await pc2.setRemoteDescription(new RTCSessionDescription(offer));
-    onSetRemoteSuccess(pc2);
-    flushIce(); // the host's candidates that arrived before the offer
-  } catch (e) {
-    onSetSessionDescriptionError(e);
-    return;
-  }
-
-  console.log('pc2 createAnswer start');
-  try {
-    const answer = await pc2.createAnswer();
-    await onCreateAnswerSuccess(answer);
-  } catch (e) {
-    onCreateSessionDescriptionError(e);
-  }
-}
-
-/* Official pc1 sample, onCreateAnswerSuccess — the pc1.setRemoteDescription
- * half is handled by the host when the answer arrives through the mailbox. */
-async function onCreateAnswerSuccess(desc) {
-  console.log(`Answer from pc2:\n${desc.sdp}`);
-  console.log('pc2 setLocalDescription start');
-  try {
-    await pc2.setLocalDescription(desc);
-    onSetLocalSuccess(pc2);
-  } catch (e) {
-    onSetSessionDescriptionError(e);
-    return;
-  }
-  await post('message', { t: 'answer', data: pc2.localDescription });
-}
-
-async function joinLoop() {
-  polling = true;
-  const deadline = Date.now() + 45000;
-  while (polling && role === 'joiner' && roomCode) {
-    if (pc2 && pc2.connectionState === 'connected') break; // signaling done — media flows directly
-    if (Date.now() > deadline) {
-      setStatus($('joinStatus'), $('joinStatusText'), 'the host never answered — they should check their tab', 'bad');
-      $('joinBtn').disabled = false;
-      break;
-    }
-    let d;
-    try {
-      d = await longPollOnce();
-    } catch (e) {
-      await sleep(2000);
-      continue;
-    }
-    if (d.error) {
-      setStatus($('joinStatus'), $('joinStatusText'), ERRORS[d.error] || d.error, 'bad');
-      $('joinBtn').disabled = false;
-      break;
-    }
-    (d.msgs || []).forEach(handleSignal);
-  }
-  polling = false;
-}
-
-/* ───────────────── signaling message handlers (codelab socket.on('message')) ───────────────── */
-
-function handleSignal(msg) {
-  if (!msg) return;
-  switch (msg.t) {
-    case 'ready':
-      // Codelab room lifecycle: a new peer joined the room — the caller
-      // answers with a fresh offer.
-      if (role === 'host') {
-        if (pc1) { try { pc1.close(); } catch (e) {} pc1 = null; }
-        pendingIce = [];
-        setStatus($('hostStatus'), $('hostStatusText'), 'friend is connecting…', 'wait');
-        createCallerPc();
-        hostOffer();
-      }
-      break;
-    case 'offer':
-      // The callee (joiner) receives the caller's offer — codelab
-      // createdOffer(): setRemote → createAnswer → send back.
-      if (role === 'joiner') joinAnswer(msg.data);
-      break;
-    case 'answer':
-      if (role === 'host') handleAnswer(msg.data);
-      break;
-    case 'ice':
-      handleCandidate(msg.data);
-      break;
-    case 'bye':
-      onPeerLeft();
-      break;
-  }
-}
-
-/* Official pc1 sample, onCreateAnswerSuccess second half: "pc1
- * setRemoteDescription start". */
-async function handleAnswer(desc) {
-  if (!pc1) return;
-  console.log('pc1 setRemoteDescription start');
-  try {
-    await pc1.setRemoteDescription(new RTCSessionDescription(desc));
-    onSetRemoteSuccess(pc1);
-    flushIce();
-  } catch (e) {
-    onSetSessionDescriptionError(e);
-  }
-}
-
-/* Official pc1 sample, gotRemoteStream — verbatim. */
-function gotRemoteStream(e) {
-  if (remoteVideo.srcObject !== e.streams[0]) {
-    remoteVideo.srcObject = e.streams[0];
-    console.log('pc2 received remote stream');
-    setStatus($('liveStatus'), $('liveStatusText'), 'connecting…', 'wait');
-  }
-}
-
-/* Official pc1 sample, verbatim. */
-async function onIceCandidate(pc, event) {
-  console.log(`${getName(pc)} ICE candidate:\n${event.candidate ? event.candidate.candidate : '(null)'}`);
-  if (!event.candidate || !roomCode) return;
-  try {
-    await post('message', { t: 'ice', data: event.candidate });
-    onAddIceCandidateSuccess(pc);
-  } catch (e) {
-    onAddIceCandidateError(pc, e);
-  }
-}
-
-/* Codelab handleConnection, remote half: "const newIceCandidate = new
- * RTCIceCandidate(iceCandidate); otherPeer.addIceCandidate(newIceCandidate)
- * .then(...).catch(...)". Per spec, addIceCandidate needs a remote
- * description first — candidates arriving early are queued. */
-function handleCandidate(data) {
-  if (!data) return;
-  const target = role === 'host' ? pc1 : pc2;
-  if (!target || !target.remoteDescription) { pendingIce.push(data); return; }
-  const newIceCandidate = new RTCIceCandidate(data);
-  target.addIceCandidate(newIceCandidate)
-    .then(() => onAddIceCandidateSuccess(target))
-    .catch(e => onAddIceCandidateError(target, e));
-}
-
-async function flushIce() {
-  const q = pendingIce;
-  pendingIce = [];
-  for (const data of q) handleCandidate(data);
-}
-
-/* Official pc1 sample, verbatim. */
-function onSetLocalSuccess(pc) {
-  console.log(`${getName(pc)} setLocalDescription complete`);
-}
-
-function onSetRemoteSuccess(pc) {
-  console.log(`${getName(pc)} setRemoteDescription complete`);
-}
-
-function onSetSessionDescriptionError(error) {
-  console.log(`Failed to set session description: ${error.toString()}`);
-}
-
-function onCreateSessionDescriptionError(error) {
-  console.log(`Failed to create session description: ${error.toString()}`);
-}
-
-function onAddIceCandidateSuccess(pc) {
-  console.log(`${getName(pc)} addIceCandidate success`);
-}
-
-function onAddIceCandidateError(pc, error) {
-  console.log(`${getName(pc)} failed to add ICE Candidate: ${error.toString()}`);
-}
-
-function onIceStateChange(pc, event) {
-  if (pc) {
-    console.log(`${getName(pc)} ICE state: ${pc.iceConnectionState}`);
-    console.log('ICE state change event: ', event);
-  }
-}
-
-/* ───────────────── app-layer glue (status badge, stats, teardown) ───────────────── */
-
 function setStatus(el, textEl, text, cls) {
-  if (textEl) textEl.textContent = text;
+  textEl.textContent = text;
   el.className = 'status' + (cls ? ' ' + cls : '');
   el.hidden = false;
 }
-
-function onConnectionState(pc) {
-  const state = pc.connectionState;
-  console.log(`${getName(pc)} connection state: ${state}`);
-  if (state === 'connected') {
-    if (pc === pc1) setStatus($('hostStatus'), $('hostStatusText'), 'LIVE — your friend sees your screen', 'live');
-    else setStatus($('liveStatus'), $('liveStatusText'), 'live', 'live');
-  } else if (state === 'failed') {
-    if (pc === pc1) setStatus($('hostStatus'), $('hostStatusText'), 'connection failed — your friend can refresh to retry', 'bad');
-    else setStatus($('liveStatus'), $('liveStatusText'), 'connection failed — hit Join again', 'bad');
+function status(s, text, cls = 'wait') {
+  if (!current(s)) return;
+  const prefix = s.role === 'host' ? 'host' : 'join';
+  setStatus($(prefix + 'Status'), $(prefix + 'StatusText'), text, cls);
+  if (s.role === 'joiner') setStatus($('liveStatus'), $('liveStatusText'), text, cls);
+}
+function newSession(role, code) {
+  return { role, code, attempt: genSid(), negotiation: 0, controller: new AbortController(),
+    pc: null, stream: null, remoteStream: new MediaStream(), ice: [], outgoingIce: [],
+    localSent: false, offerHandled: false, answerHandled: false, stage: 'signaling', timer: null };
+}
+async function request(s, path, body, timeout = 10000) {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  s.controller.signal.addEventListener('abort', cancel, { once: true });
+  const timer = setTimeout(cancel, timeout);
+  if (!current(s)) controller.abort();
+  try {
+    const r = await fetch(SIGNAL + path, { method: body ? 'POST' : 'GET', cache: 'no-store',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined, signal: controller.signal });
+    const data = await r.json();
+    if (!r.ok || data.error) {
+      const error = new Error(ERRORS[data.error] || data.error || `Server error (${r.status}).`);
+      error.code = data.error;
+      throw error;
+    }
+    return data;
+  } catch (e) {
+    if (!current(s)) throw e;
+    if (e.name === 'AbortError' || e instanceof TypeError) throw new Error(ERRORS.network);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    s.controller.signal.removeEventListener('abort', cancel);
   }
 }
-
-function onPeerLeft() {
-  if (role === 'host') {
-    if (pc1) { try { pc1.close(); } catch (e) {} pc1 = null; }
-    setStatus($('hostStatus'), $('hostStatusText'), 'friend left — waiting for a new connection', 'wait');
-    // The room stays open: the next joiner triggers 'ready' again.
-  } else {
-    teardown();
-    setStatus($('joinStatus'), $('joinStatusText'), 'the host closed the share', 'bad');
+function roomPath(s) {
+  return `/room?code=${encodeURIComponent(s.code)}&role=${s.role}&sid=${mySid}&attempt=${s.attempt}`;
+}
+function post(s, a, msg) {
+  return request(s, roomPath(s), { a, attempt: s.attempt, negotiation: s.negotiation, msg });
+}
+async function prepare(s) {
+  const health = await request(s, '/');
+  if (health.protocol !== PROTOCOL_VERSION) throw new Error(ERRORS.protocol_mismatch);
+  const ice = await request(s, '/ice');
+  return { iceServers: ice.iceServers };
+}
+function notifyLeave(s) {
+  if (!s?.code) return;
+  const body = s.role === 'host' ? { a: 'close' } : { a: 'leave', attempt: s.attempt, negotiation: s.negotiation };
+  fetch(SIGNAL + roomPath(s), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body), keepalive: true }).catch(() => {});
+}
+function closePc(s) {
+  const pc = s.pc;
+  s.pc = null;
+  if (pc) pc.close();
+  if (pc1 === pc) pc1 = null;
+  if (pc2 === pc) pc2 = null;
+}
+function dispose(s, notify = true) {
+  if (!s) return;
+  if (notify) notifyLeave(s);
+  clearTimeout(s.timer);
+  s.controller.abort();
+  closePc(s);
+  s.stream?.getTracks().forEach(t => t.stop());
+}
+function fail(s, error) {
+  if (!current(s)) return;
+  console.error(`Peek ${s.stage}:`, error);
+  status(s, error.message || String(error), 'bad');
+  dispose(s);
+  if (s.role === 'joiner') {
+    $('joinView').classList.add('show');
+    $('joinBtn').disabled = false;
+    $('retryBtn').disabled = false;
+    $('playBtn').hidden = true;
   }
 }
-
+function armDeadline(s) {
+  clearTimeout(s.timer);
+  s.timer = setTimeout(() => {
+    const text = !s.offerHandled ? 'No offer arrived from the host — check that their share is still open.'
+      : s.stage === 'answer' ? 'Could not finish sending the answer — retry the connection.'
+      : 'Offer and answer exchanged, but the browsers could not connect directly.';
+    fail(s, new Error(text));
+  }, 45000);
+}
+function createPc(s, config) {
+  const pc = new RTCPeerConnection(config);
+  const generation = s.negotiation;
+  s.pc = pc;
+  if (s.role === 'host') pc1 = pc; else pc2 = pc;
+  const active = () => current(s) && s.pc === pc && s.negotiation === generation;
+  pc.addEventListener('icecandidate', e => {
+    if (!active() || !e.candidate) return;
+    const msg = { t: 'ice', data: e.candidate.toJSON(), negotiation: generation };
+    if (!s.localSent) s.outgoingIce.push(msg);
+    else post(s, 'message', msg).catch(error => {
+      if (active() && error.code !== 'stale_negotiation') fail(s, error);
+    });
+  });
+  pc.addEventListener('connectionstatechange', () => {
+    if (!active()) return;
+    console.log(`Peek ${s.role}: ${pc.connectionState}`);
+    if (pc.connectionState === 'connected') {
+      clearTimeout(s.timer);
+      s.stage = 'connected';
+      status(s, s.role === 'host' ? 'LIVE — your friend sees your screen' : 'live', 'live');
+      if (s.role === 'joiner') {
+        $('joinView').classList.remove('show');
+        $('vidWrap').classList.add('show');
+        $('retryBtn').disabled = false;
+      }
+    } else if (pc.connectionState === 'failed') {
+      fail(s, new Error('Offer and answer exchanged, but the direct connection failed — retry the connection.'));
+    } else if (pc.connectionState === 'disconnected') {
+      status(s, 'connection interrupted — waiting to reconnect…');
+    }
+  });
+  if (s.role === 'host') s.stream.getTracks().forEach(t => pc.addTrack(t, s.stream));
+  else pc.addEventListener('track', e => { if (active()) gotRemoteStream(s, e); });
+  return pc;
+}
+async function sendDescription(s, pc, desc) {
+  await pc.setLocalDescription(desc);
+  if (!current(s) || s.pc !== pc) return;
+  await post(s, 'message', { t: desc.type, data: pc.localDescription.toJSON(), negotiation: s.negotiation });
+  if (!current(s) || s.pc !== pc) return;
+  s.localSent = true;
+  const candidates = s.outgoingIce.splice(0);
+  for (const msg of candidates) await post(s, 'message', msg);
+}
+async function hostOffer(s) {
+  const pc = s.pc;
+  s.stage = 'offer';
+  await sendDescription(s, pc, await pc.createOffer());
+  s.stage = 'waiting';
+}
+async function joinAnswer(s, offer) {
+  if (s.offerHandled) return; // SDP may be replayed until its answer is accepted.
+  s.offerHandled = true;
+  s.stage = 'answer';
+  const pc = createPc(s, s.config);
+  await pc.setRemoteDescription(offer);
+  await flushIce(s, pc);
+  await sendDescription(s, pc, await pc.createAnswer());
+  if (current(s)) { s.stage = 'connecting'; status(s, 'answer sent — connecting the browsers…'); }
+}
+async function handleCandidate(s, data) {
+  if (!s.pc?.remoteDescription) { s.ice.push(data); return; }
+  await s.pc.addIceCandidate(data);
+}
+async function flushIce(s, pc) {
+  for (const data of s.ice.splice(0)) {
+    if (!current(s) || s.pc !== pc) return;
+    await pc.addIceCandidate(data);
+  }
+}
+async function handleSignal(s, msg) {
+  if (!current(s) || !msg) return;
+  if (msg.t === 'ready' && s.role === 'host') {
+    if (msg.negotiation <= s.negotiation) return;
+    closePc(s);
+    s.negotiation = msg.negotiation;
+    s.ice = []; s.outgoingIce = []; s.localSent = false; s.answerHandled = false;
+    status(s, 'friend is connecting…');
+    createPc(s, s.config);
+    await hostOffer(s);
+    return;
+  }
+  if (msg.negotiation !== s.negotiation) return;
+  switch (msg.t) {
+    case 'offer':
+      if (s.role === 'joiner') await joinAnswer(s, msg.data);
+      break;
+    case 'answer':
+      if (s.role === 'host' && s.pc && !s.answerHandled) {
+        s.answerHandled = true;
+        await s.pc.setRemoteDescription(msg.data);
+        await flushIce(s, s.pc);
+        await post(s, 'ack');
+      }
+      break;
+    case 'ice': await handleCandidate(s, msg.data); break;
+    case 'bye':
+      if (s.role === 'host') { closePc(s); status(s, 'friend left — waiting for a new connection'); }
+      else fail(s, new Error('The host closed the share.'));
+      break;
+    default: console.warn('Unknown Peek signal:', msg.t);
+  }
+}
+async function signalLoop(s) {
+  while (current(s)) {
+    try {
+      const d = await request(s, roomPath(s), null, 22000);
+      for (const msg of d.msgs || []) {
+        if (!current(s)) break;
+        await handleSignal(s, msg);
+      }
+    } catch (e) {
+      if (current(s) && !(s.role === 'host' && e.code === 'stale_negotiation')) fail(s, e);
+    }
+  }
+}
+async function startHost() {
+  if (hostStarting) return;
+  hostStarting = true;
+  dispose(session);
+  const s = session = newSession('host', null);
+  show('hostView');
+  $('codeOut').textContent = '······';
+  status(s, 'pick a screen to share…');
+  try {
+    s.stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: true });
+    if (!current(s)) { s.stream.getTracks().forEach(t => t.stop()); return; }
+    s.stream.getVideoTracks()[0].addEventListener('ended', () => { if (current(s)) teardown(); });
+    $('previewVideo').srcObject = s.stream;
+    $('previewBox').classList.add('show');
+    status(s, 'asking the server for a code…');
+    s.config = await prepare(s);
+    const created = await request(s, `/room/create?role=host&sid=${mySid}`, {});
+    if (!current(s)) return;
+    s.code = created.code;
+    s.negotiation = created.negotiation;
+    $('codeOut').textContent = s.code;
+    createPc(s, s.config);
+    await hostOffer(s);
+    status(s, 'waiting for your friend…');
+    signalLoop(s);
+  } catch (e) { fail(s, e.name === 'NotAllowedError' ? new Error('Screen pick cancelled.') : e); }
+  finally { hostStarting = false; }
+}
+async function startJoin() {
+  const code = $('codeInput').value.trim().toUpperCase();
+  if ($('joinBtn').disabled) return;
+  if (!/^[A-Z0-9]{6}$/.test(code)) {
+    setStatus($('joinStatus'), $('joinStatusText'), ERRORS.bad_code, 'bad');
+    return;
+  }
+  // A retry keeps the tab identity but explicitly starts a new negotiation.
+  dispose(session, session?.code !== code);
+  const s = session = newSession('joiner', code);
+  remoteVideo.srcObject = null;
+  $('playBtn').hidden = true;
+  show('joinView');
+  $('joinBtn').disabled = true;
+  $('retryBtn').disabled = true;
+  status(s, 'contacting the signaling server…');
+  armDeadline(s);
+  try {
+    s.config = await prepare(s);
+    const joined = await request(s, roomPath(s), { a: 'join', attempt: s.attempt });
+    if (!current(s)) return;
+    s.negotiation = joined.negotiation;
+    status(s, 'waiting for the host offer…');
+    signalLoop(s);
+  } catch (e) { fail(s, e); }
+}
+async function playRemote(s) {
+  try {
+    await remoteVideo.play();
+    if (current(s)) $('playBtn').hidden = true;
+  } catch (e) {
+    if (!current(s)) return;
+    if (e.name === 'NotAllowedError') $('playBtn').hidden = false;
+    else fail(s, new Error(`Video playback failed: ${e.message}`));
+  }
+}
+function gotRemoteStream(s, e) {
+  if (!s.remoteStream.getTracks().includes(e.track)) s.remoteStream.addTrack(e.track);
+  remoteVideo.srcObject = s.remoteStream;
+  $('vidWrap').classList.add('show');
+  playRemote(s);
+}
 function teardown() {
-  polling = false;
-  if (pc1) { try { pc1.close(); } catch (e) {} pc1 = null; }
-  if (pc2) { try { pc2.close(); } catch (e) {} pc2 = null; }
-  pendingIce = [];
-  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-  if (roomCode && role === 'host') {
-    try { fetch(`${SIGNAL}/room?code=${roomCode}&role=host&sid=${mySid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a: 'close' }), keepalive: true }); } catch (e) {}
-  }
+  dispose(session);
+  session = null;
   $('previewVideo').srcObject = null;
   $('previewBox').classList.remove('show');
   remoteVideo.srcObject = null;
-  $('vidWrap').classList.remove('show');
-  document.body.classList.remove('hosting');
+  $('playBtn').hidden = true;
   if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
-  role = null;
-  roomCode = null;
   show('menu');
   $('joinStatus').hidden = true;
   $('joinBtn').disabled = false;
+  $('retryBtn').disabled = false;
   $('codeInput').value = '';
 }
-
-function stopHost() { teardown(); }
-
-/* ───────────────────────── wiring ───────────────────────── */
-
 $('optHost').onclick = startHost;
 $('optJoin').onclick = () => { show('joinView'); $('codeInput').focus(); };
 $('joinBtn').onclick = startJoin;
-$('stopBtn').onclick = stopHost;
-$('leaveBtn').onclick = () => teardown();
-$('hostBack').onclick = () => stopHost();
-$('joinBack').onclick = () => teardown();
-$('copyBtn').onclick = () => {
-  navigator.clipboard.writeText($('codeOut').textContent).then(() => {
-    $('copyBtn').textContent = 'Copied!';
-    setTimeout(() => { $('copyBtn').textContent = 'Copy'; }, 1500);
-  }).catch(() => {});
-};
+$('retryBtn').onclick = () => { $('joinBtn').disabled = false; startJoin(); };
+$('playBtn').onclick = () => { if (session) playRemote(session); };
+['stopBtn', 'leaveBtn', 'hostBack', 'joinBack'].forEach(id => $(id).onclick = teardown);
+$('copyBtn').onclick = () => navigator.clipboard.writeText($('codeOut').textContent).then(() => {
+  $('copyBtn').textContent = 'Copied!';
+  setTimeout(() => { $('copyBtn').textContent = 'Copy'; }, 1500);
+}).catch(() => {});
 $('pipBtn').onclick = () => {
-  const v = $('previewVideo');
   if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
-  else if (v.requestPictureInPicture) v.requestPictureInPicture().catch(() => {});
+  else $('previewVideo').requestPictureInPicture?.().catch(() => {});
 };
-$('fsBtn').onclick = () => {
-  if (remoteVideo.requestFullscreen) remoteVideo.requestFullscreen().catch(() => {});
-};
-/* Clear-everything-JS-can-reach: Cache Storage + service workers, then a
- * reload. Deliberately does NOT touch localStorage — the chat app on this
- * origin keeps real user data there. Browser/CDN HTTP-cache entries are
- * expired by the server's own max-age, not by pages. */
+$('fsBtn').onclick = () => remoteVideo.requestFullscreen?.().catch(() => {});
+/* Cache clearing never touches localStorage: PKAX stores conversations there. */
 $('clearCacheBtn').onclick = async () => {
-  const btn = $('clearCacheBtn');
-  btn.disabled = true;
-  btn.textContent = 'Clearing…';
+  const btn = $('clearCacheBtn'); btn.disabled = true; btn.textContent = 'Clearing…';
   try {
-    if (window.caches) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
-    }
-    if (navigator.serviceWorker) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map(r => r.unregister()));
-    }
+    if (window.caches) await Promise.all((await caches.keys()).map(k => caches.delete(k)));
+    if (navigator.serviceWorker) await Promise.all((await navigator.serviceWorker.getRegistrations()).map(r => r.unregister()));
     btn.textContent = 'Cleared — reloading…';
-  } catch (e) {
-    btn.textContent = 'Cache partially cleared';
-  }
+  } catch { btn.textContent = 'Cache partially cleared'; }
   setTimeout(() => location.reload(), 600);
 };
 $('codeInput').addEventListener('input', e => {
   e.target.value = e.target.value.toUpperCase().replace(new RegExp('[^' + CODE_ALPHABET + ']', 'g'), '').slice(0, 6);
 });
 $('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') startJoin(); });
-window.addEventListener('beforeunload', () => {
-  if (roomCode && role === 'host') {
-    try { fetch(`${SIGNAL}/room?code=${roomCode}&role=host&sid=${mySid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ a: 'close' }), keepalive: true }); } catch (e) {}
-  }
-});
-
-/* Kick off the ICE server configuration fetch (trickle-ice sample builds
- * its configuration from a servers list; ours arrives over HTTP). */
-iceServers().then(list => { configuration = { iceServers: list }; });
+window.addEventListener('beforeunload', () => notifyLeave(session));
 </script>
 </body>
 </html>

@@ -39,26 +39,48 @@ Install the cert to the container root and the egg just works:
 acme.sh's cron renews and rewrites those files; **restart the server from
 the panel** after a renewal to load the new cert.
 
-## Protocol (for the curious)
+## Protocol (v4)
 
-Everything is `/room?code=<CODE>&role=host|joiner&sid=<random>`. The WebRTC
-docs leave the signaling transport unspecified — this mailbox mirrors the
-codelab's room lifecycle (created / joined / ready / full) with a per-role
-inbox:
+`GET /` returns `{ok:true, service:'peek-signal-node', protocol:4}`.
+`GET /ice` returns the STUN list; there is no media relay.
+
+The host creates its room with `POST /room/create?role=host&sid=<tab-id>`.
+The server returns `{ok:true, code, negotiation:0, protocol:4}`. The host
+posts an offer immediately, before a viewer arrives.
+
+All other requests use `/room?code=<CODE>&role=host|joiner&sid=<tab-id>`.
+A viewer also supplies `attempt=<join-id>` on polls and `attempt` in POST
+bodies. Each click of Join creates a new attempt while retaining its tab ID.
 
 | Call | Meaning |
 |---|---|
-| `POST {a:'create'}` | host claims the code |
-| `GET` (long-poll, ≤15s) | drain your inbox; parks until a message arrives |
-| `POST {a:'message', msg:{t:'offer', data}}` | host posts its SDP offer (only the host may) |
-| `POST {a:'message', msg:{t:'answer', data}}` | joiner posts its SDP answer (only the joiner may) |
-| `POST {a:'message', msg:{t:'ice', data}}` | trickle an ICE candidate to the other peer |
-| `POST {a:'message', msg:{t:'bye'}}` | hang up |
-| `POST {a:'close'}` | host frees the code |
+| `POST {a:'join', attempt}` | claim the viewer seat; returns its negotiation number |
+| `GET` (long-poll, ≤15s) | receive `{t:'messages', msgs, negotiation}` |
+| `POST {a:'message', attempt, msg:{t:'offer'|'answer'|'ice', data, negotiation}}` | exchange current negotiation details |
+| `POST {a:'ack', negotiation}` | host confirms receipt of the answer |
+| `POST {a:'leave', attempt, negotiation}` | viewer releases the seat |
+| `POST {a:'close'}` | owning host deletes the room |
 
-A fresh joiner registering clears any stale offer and pushes `ready` to the
-host, which responds with a fresh offer — the codelab's `ready` → re-offer
-flow. `GET /ice` returns the STUN/TURN list. `GET /` is a health check.
+The first viewer receives the pre-deposited offer. Retrying, reconnecting,
+or replacing an expired viewer starts a new negotiation and sends `ready`
+to the host for a fresh offer. Old answers and ICE are rejected. Offers
+are retained until answered; answers are retained until acknowledged.
+Both tabs keep polling while connected to preserve their seats and receive
+leave/close notifications. Video still flows directly browser-to-browser.
+
+## Updating and testing
+
+**Deploy `server.js`, `mailbox.js`, and the updated `peek/index.html` together.**
+The page checks protocol 4 and reports an update mismatch instead of trying
+an incompatible handshake. Restart the Altare server after uploading both
+server files, then publish the page and refresh both tabs. Do not change
+or overwrite the existing TLS certificate/key during this update.
+
+Run `npm test` in this folder for mailbox regressions. Test the actual page
+with two browsers too: first join, visible moving video, same-tab Retry,
+Leave then Join, an active session beyond 40 seconds, and host Stop.
+Local Chromium tests do not prove Firefox/Steam Deck behavior or NAT
+connectivity between different networks.
 
 ## HTTPS on a single non-standard port
 
