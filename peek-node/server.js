@@ -13,7 +13,7 @@ import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { handleAction, poll, CODE_RE, MAX_SDP_CHARS } from './mailbox.js';
+import { createRoom, handleAction, poll, CODE_RE, MAX_SDP_CHARS } from './mailbox.js';
 
 const PORT = Number(process.env.PORT || 25789);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -96,6 +96,15 @@ async function route(req, res) {
 
   if (url.pathname === '/ice') {
     return json(res, { iceServers: ICE_SERVERS });
+  }
+
+  // Code creation: THE SERVER issues the code, the client never invents one.
+  if (url.pathname === '/room/create') {
+    if (req.method !== 'POST') return json(res, { error: 'method_not_allowed' }, 405);
+    const sid = String(url.searchParams.get('sid') || '').slice(0, 48);
+    if (!sid) return json(res, { error: 'bad_request' }, 400);
+    const out = createRoom(sid);
+    return json(res, out.data, out.status);
   }
 
   if (url.pathname === '/room') {

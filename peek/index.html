@@ -255,12 +255,6 @@ function getName(pc) {
   return (pc === pc1) ? 'pc1' : 'pc2';
 }
 
-function genCode() {
-  const bytes = new Uint8Array(6);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, b => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
-}
-
 function genSid() {
   const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
@@ -338,10 +332,14 @@ async function startHost() {
   $('codeOut').textContent = '······';
   setStatus($('hostStatus'), $('hostStatusText'), 'getting a code…', 'wait');
 
-  roomCode = genCode();
+  roomCode = null;
+  setStatus($('hostStatus'), $('hostStatusText'), 'asking the server for a code…', 'wait');
+  // THE SERVER issues the code — the client never invents one.
   let created = null;
   for (let attempt = 0; attempt < 5; attempt++) {
-    created = await post('create');
+    created = await fetch(`${SIGNAL}/room/create?role=host&sid=${mySid}`, { method: 'POST' })
+      .then(r => r.json())
+      .catch(() => ({ error: 'network' }));
     if (!created.error) break;
     if (created.error === 'host_already') { await sleep(1500); continue; }
     break;
@@ -351,8 +349,14 @@ async function startHost() {
     return;
   }
 
+  roomCode = created.code;
   $('codeOut').textContent = roomCode;
   setStatus($('hostStatus'), $('hostStatusText'), 'waiting for your friend…', 'wait');
+
+  // Official pc1 sample: the caller offers as soon as the call starts. The
+  // offer waits in the mailbox for the joiner — not the other way around.
+  createCallerPc();
+  hostOffer();
   hostLoop();
 }
 
