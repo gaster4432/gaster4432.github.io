@@ -299,7 +299,20 @@ else
   USE_STEAM=0
 fi
 
-if [[ "$USE_STEAM" == "1" ]]; then
+# ---- progress detection helpers ----
+# Client is considered present if the main game exe exists (DepotDownloader or mirror extract).
+client_extracted() {
+  [[ -f Recroom_Release.exe ]] || [[ -f RecRoom.exe ]]
+}
+
+# Patch is considered present if the screen launcher + injector shipped with the patch exist.
+patch_extracted() {
+  [[ -f RecRoomScreen.bat ]] && [[ -f Injector.exe ]]
+}
+
+if client_extracted; then
+  echo -e "${GREEN}Game client already present — skipping client download/extract.${RESET}"
+elif [[ "$USE_STEAM" == "1" ]]; then
   # --- Steam / DepotDownloader path ---
   if [[ -n "${STEAM_USERNAME:-}" ]]; then
     : # already set via env
@@ -314,13 +327,17 @@ if [[ "$USE_STEAM" == "1" ]]; then
     exit 1
   fi
 
-  echo -e "${CYAN}=== Installing DepotDownloader ===${RESET}"
-  curl -s -f -L -o DepotDownloader.zip \
-    "https://github.com/SteamRE/DepotDownloader/releases/download/DepotDownloader_3.4.0/DepotDownloader-linux-x64.zip"
-  mkdir -p DepotDownloader
-  unzip -qo DepotDownloader.zip -d DepotDownloader
-  rm -f DepotDownloader.zip
-  chmod +x DepotDownloader/DepotDownloader
+  if [[ ! -x DepotDownloader/DepotDownloader ]]; then
+    echo -e "${CYAN}=== Installing DepotDownloader ===${RESET}"
+    curl -s -f -L -o DepotDownloader.zip \
+      "https://github.com/SteamRE/DepotDownloader/releases/download/DepotDownloader_3.4.0/DepotDownloader-linux-x64.zip"
+    mkdir -p DepotDownloader
+    unzip -qo DepotDownloader.zip -d DepotDownloader
+    rm -f DepotDownloader.zip
+    chmod +x DepotDownloader/DepotDownloader
+  else
+    echo -e "${GREEN}DepotDownloader already present — skipping install.${RESET}"
+  fi
 
   echo -e "${CYAN}=== Downloading depot via DepotDownloader (will prompt for Steam password / 2FA) ===${RESET}"
   ./DepotDownloader/DepotDownloader \
@@ -333,13 +350,14 @@ if [[ "$USE_STEAM" == "1" ]]; then
 else
   # --- Mirror / bucket path ---
   CLIENT_MD5="6820e89bff41906ded7f5c066027f1d6"
+
   if [[ -f client.zip ]]; then
     echo -e "${CYAN}=== Checking existing client.zip ===${RESET}"
     LOCAL_MD5=$(md5sum client.zip | awk '{print $1}')
     if [[ "${LOCAL_MD5,,}" == "${CLIENT_MD5,,}" ]]; then
-      echo -e "${GREEN}client.zip already matches expected hash - skipping download.${RESET}"
+      echo -e "${GREEN}client.zip already matches expected hash — skipping download.${RESET}"
     else
-      echo -e "${RED}client.zip does not match expected hash - redownloading.${RESET}"
+      echo -e "${RED}client.zip does not match expected hash — redownloading.${RESET}"
       rm -f client.zip
     fi
   fi
@@ -355,33 +373,42 @@ else
   unzip -qo client.zip -d .
 fi
 
-# Common post-download steps
-echo -e "${CYAN}=== Writing steam_appid.txt ===${RESET}"
-echo 480 > steam_appid.txt
+# steam_appid.txt is cheap — always ensure it exists
+if [[ -f steam_appid.txt ]] && grep -qx '480' steam_appid.txt 2>/dev/null; then
+  echo -e "${GREEN}steam_appid.txt already set — skipping.${RESET}"
+else
+  echo -e "${CYAN}=== Writing steam_appid.txt ===${RESET}"
+  echo 480 > steam_appid.txt
+fi
 
-echo -e "${CYAN}=== Downloading Rec Room 2025 patch ===${RESET}"
-curl -s -f -L -o 2025Patch.zip \
-  "https://github.com/recflare/patch-2025/releases/download/${PATCH_VERSION}/2025Patch-${PATCH_VERSION}-x64.zip"
-unzip -qo 2025Patch.zip -d .
-rm -f 2025Patch.zip
+# Patch download + extract (skip if already present)
+if patch_extracted; then
+  echo -e "${GREEN}2025 patch already present — skipping download/extract.${RESET}"
+else
+  echo -e "${CYAN}=== Downloading Rec Room 2025 patch ===${RESET}"
+  curl -s -f -L -o 2025Patch.zip \
+    "https://github.com/recflare/patch-2025/releases/download/${PATCH_VERSION}/2025Patch-${PATCH_VERSION}-x64.zip"
+  echo -e "${CYAN}=== Extracting Rec Room 2025 patch ===${RESET}"
+  unzip -qo 2025Patch.zip -d .
+  rm -f 2025Patch.zip
+fi
 
+# Always (re)point 2025patch.ini at RecFlare — idempotent
 echo -e "${CYAN}=== Pointing 2025patch.ini at RecFlare ===${RESET}"
-# Update or create 2025patch.ini with ApiHost / PhotonHost
 python3 - <<'PY'
 from pathlib import Path
+import re
 p = Path("2025patch.ini")
 hosts = {
     "ApiHost": "ns.recflare.net",
     "PhotonHost": "photon.recflare.net",
 }
 lines = p.read_text().splitlines() if p.exists() else ["[config]"]
-# Ensure we have a [config] section
 if not any(l.strip().startswith("[") for l in lines):
     lines.insert(0, "[config]")
 
 def set_key(key, value):
     global lines
-    import re
     pat = re.compile(r"^\s*" + re.escape(key) + r"\s*=")
     for i, line in enumerate(lines):
         if pat.match(line):
