@@ -351,7 +351,8 @@ else
   fi
 
   echo -e "${CYAN}=== Extracting game client ===${RESET}"
-  tar -xf client.zip -C .
+  # client.zip is a real ZIP (Windows tar can open it; GNU tar on Linux cannot)
+  unzip -qo client.zip -d .
 fi
 
 # Common post-download steps
@@ -361,7 +362,7 @@ echo 480 > steam_appid.txt
 echo -e "${CYAN}=== Downloading Rec Room 2025 patch ===${RESET}"
 curl -s -f -L -o 2025Patch.zip \
   "https://github.com/recflare/patch-2025/releases/download/${PATCH_VERSION}/2025Patch-${PATCH_VERSION}-x64.zip"
-tar -xf 2025Patch.zip -C .
+unzip -qo 2025Patch.zip -d .
 rm -f 2025Patch.zip
 
 echo -e "${CYAN}=== Pointing 2025patch.ini at RecFlare ===${RESET}"
