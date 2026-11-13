@@ -409,6 +409,7 @@ function resetRun(endless, weeee) {
   G.state = 'playing'; G.time = 0; G.wave = 1; G.waveT = 0; G.kills = 0; G.score = 0;
   G.combo = 0; G.comboT = 0; G.bestCombo = 0; G.shake = 0; G.hitstop = 0; G.flashA = 0;
   G.endless = !!endless; G.won = false; G.rerolls = 1; G.pendingLevels = 0; G.boss = null; G.spawnT = 1;
+  const _bb = $('boss-bar-wrap'); if (_bb) _bb.classList.add('hidden');
   cam.x = 0; cam.y = 0;
   store.set('games', (store.get('games', 0)) + 1);
   refreshMenuStats();
@@ -676,7 +677,7 @@ function spawnBoss(wave) {
 function onBossDown(e) {
   if (e.bossWave === 20 && !G.endless && !G.won) {
     G.won = true;
-    setTimeout(() => { if (G.state === 'playing') victory(); }, 1200);
+    setTimeout(() => { if (G.state !== 'over' && player.alive) victory(); }, 1200);
   } else {
     toast('Boss destroyed! +1 bomb');
     player.bombs = Math.min(player.maxBombs, player.bombs + 1);

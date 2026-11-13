@@ -2,7 +2,11 @@
 // Structured logging for cf-chat -> LOG_DB
 //
 // Logging must never be able to take down a request it is observing, so
-// every write is wrapped and failures are swallowed.
+// every write is wrapped and failures are swallowed. Pass the fetch
+// handler's `ctx` so the write completes via ctx.waitUntil — a plain
+// fire-and-forget promise is cancelled when the response is sent, which
+// silently dropped most log rows. Without a ctx (e.g. local tests) the
+// write still fires, just best effort.
 // ==========================================
 
 const LOG_LEVELS = new Set(["info", "warn", "error"]);
@@ -14,10 +18,12 @@ const LOG_CATEGORIES = new Set([
 const MAX_MESSAGE_CHARS = 2000;
 
 /**
- * Insert one log row. Fire-and-forget by design — the caller never awaits
- * this, so logging can never add latency or fail a user request.
+ * Insert one log row. When the fetch handler's `ctx` is given, the write
+ * is registered with ctx.waitUntil so the runtime does not cancel it once
+ * the response has been sent. The caller never awaits this — logging
+ * never adds latency or fails a user request.
  */
-function writeLog(env, entry) {
+function writeLog(env, entry, ctx) {
   if (!env.LOG_DB) return;
 
   const level = LOG_LEVELS.has(entry.level) ? entry.level : "info";
@@ -50,7 +56,10 @@ function writeLog(env, entry) {
   try {
     const result = p.run();
     if (result && typeof result.catch === "function") {
-      result.catch((e) => console.error("[log] write failed:", e?.message || e));
+      const guarded = result.catch((e) =>
+        console.error("[log] write failed:", e?.message || e)
+      );
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(guarded);
     }
   } catch (e) {
     console.error("[log] write failed:", e?.message || e);

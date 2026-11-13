@@ -224,7 +224,7 @@ function trimToAssistantTurn(history) {
 }
 
 async function handleChat(request, env, context = {}) {
-  const { user = null } = context;
+  const { user = null, ctx = null } = context;
   let body;
 
   try {
@@ -289,7 +289,7 @@ async function handleChat(request, env, context = {}) {
     username: user ? user.username : null,
     authenticated: !!user,
     inputChars: loggedText.length,
-  });
+  }, ctx);
 
   if (model && model !== selectedModel) {
     return json(
@@ -385,7 +385,7 @@ const greeting =
       authenticated: !!user,
       inputChars: inputChars,
       errorCode: "upstream_error",
-    });
+    }, ctx);
 
     return json(
       {
@@ -409,7 +409,7 @@ const greeting =
       model: selectedModel,
       authenticated: !!user,
       errorCode: "not_a_stream",
-    });
+    }, ctx);
 
     return json(
       {
@@ -524,7 +524,7 @@ const greeting =
           inputChars: inputChars,
           outputChars: emittedChars,
           durationMs: Date.now() - startedAt,
-        });
+        }, ctx);
 
         emit(controller, encoder, {
           done: true,
@@ -543,7 +543,7 @@ const greeting =
           model: selectedModel,
           authenticated: !!user,
           errorCode: "stream_failed",
-        });
+        }, ctx);
 
         try {
           sendError(
@@ -581,13 +581,13 @@ const greeting =
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const started = Date.now();
     const url = new URL(request.url);
 
     try {
-      const res = await route(request, env, url);
-      logRequest(request, env, url, res, started);
+      const res = await route(request, env, url, ctx);
+      logRequest(request, env, url, res, started, ctx);
       return res;
     } catch (error) {
       // Last-resort net: without this a thrown handler returns a bare
@@ -601,14 +601,14 @@ export default {
         path: url.pathname,
         status: 500,
         durationMs: Date.now() - started,
-      });
+      }, ctx);
       return json({ error: "Internal error" }, 500);
     }
   }
 };
 
 /** One structured row per API request. Skips static/noisy paths. */
-function logRequest(request, env, url, res, started) {
+function logRequest(request, env, url, res, started, ctx) {
   if (!env.LOG_DB) return;
   if (!url.pathname.startsWith("/api/")) return;
   if (url.pathname === "/api/chat") return;
@@ -630,10 +630,10 @@ function logRequest(request, env, url, res, started) {
     status,
     durationMs: Date.now() - started,
     errorCode: status >= 400 ? url.searchParams.get("error") : null,
-  });
+  }, ctx);
 }
 
-async function route(request, env, url) {
+async function route(request, env, url, ctx) {
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
@@ -741,7 +741,7 @@ async function route(request, env, url) {
       // registration endpoints still have their own limits, which is where
       // brute forcing would actually hurt.
       const user = await resolveSession(env, request);
-      return handleChat(request, env, { user });
+      return handleChat(request, env, { user, ctx });
     }
 
     return json({ error: "Not found" }, 404);

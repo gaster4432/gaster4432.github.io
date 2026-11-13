@@ -26,3 +26,11 @@ coverage/
 # The Pkax installer is published as a GitHub release asset, not committed.
 # The download links point at the latest release.
 /pkax/Pkax-Setup.exe
+
+# AI agent plans and stray shell-artifact directories
+.zcode/
+$USERPROFILE/
+-p/
+state/
+/*.tar.gz
+/*.zip

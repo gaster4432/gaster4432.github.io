@@ -98,21 +98,41 @@ let me = null;
 
 // Opt-in "Remember me": the saved session normally keeps you signed in via
 // sliding refresh, so this is only used as a fallback when a session has
-// lapsed or been superseded. Opt-in because it stores the real password.
+// lapsed or been superseded. Opt-in because it stores a replayable login
+// verifier — anyone who can read this browser's localStorage can mint
+// sessions as you. (It never stores your actual password.)
 const REMEMBER_KEY = 'pkax_remember';
-function savedCredentials() {
+// Format: { v: 2, username, verifier }. The verifier is SHA-256 of the
+// PBKDF2 output — enough to sign in, useless for recovering the password.
+// Legacy entries ({ username, password }) are upgraded in place the first
+// time they are seen; the plaintext never gets written back.
+function storedCredentialsExist() {
+  try { return !!localStorage.getItem(REMEMBER_KEY); } catch { return false; }
+}
+async function savedCredentials() {
   try {
     const raw = localStorage.getItem(REMEMBER_KEY);
     if (!raw) return null;
     const v = JSON.parse(raw);
-    return v && typeof v.username === 'string' && typeof v.password === 'string'
-      ? v : null;
+    if (v && typeof v.username === 'string' && typeof v.verifier === 'string') {
+      return { username: v.username, verifier: v.verifier };
+    }
+    // Legacy plaintext entry — derive the verifier, overwrite the entry as
+    // v2 (which drops the password), and keep going with the verifier.
+    if (v && typeof v.username === 'string' && typeof v.password === 'string') {
+      const verifier = await Passwords.derive(v.username, v.password);
+      saveCredentials(v.username, verifier);
+      return { username: v.username, verifier };
+    }
+    clearCredentials();
+    return null;
   } catch {
+    clearCredentials();
     return null;
   }
 }
-function saveCredentials(username, password) {
-  try { localStorage.setItem(REMEMBER_KEY, JSON.stringify({ username, password })); } catch {}
+function saveCredentials(username, verifier) {
+  try { localStorage.setItem(REMEMBER_KEY, JSON.stringify({ v: 2, username, verifier })); } catch {}
 }
 function clearCredentials() {
   try { localStorage.removeItem(REMEMBER_KEY); } catch {}
@@ -386,10 +406,10 @@ async function restoreSession() {
     writeSessionId('');
   }
 
-  // No usable session — fall back to the stored password if the user opted in.
-  const creds = savedCredentials();
-  if (creds && creds.password) {
-    const verifier = await Passwords.derive(creds.username, creds.password);
+  // No usable session — fall back to the stored verifier if the user opted in.
+  const creds = await savedCredentials();
+  if (creds) {
+    const verifier = creds.verifier;
     const r = await api('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username: creds.username, verifier }),
@@ -408,7 +428,7 @@ async function restoreSession() {
       renderAuth();
       return;
     }
-    // Stored password no longer works — stop retrying on every page load.
+    // Stored verifier no longer works — stop retrying on every page load.
     clearCredentials();
   }
 
@@ -434,7 +454,7 @@ function openAccountModal() {
     paintAvatar($('avatarPreview'), $('authUsername').value.trim() || 'Guest', pendingAvatar);
     // Default to remembering only if credentials are already stored, so the
     // box never silently starts collecting a new password.
-    $('authRemember').checked = !!savedCredentials();
+    $('authRemember').checked = storedCredentialsExist();
     syncRememberWarning();
     $('authUsername').focus();
   } else {
@@ -485,7 +505,7 @@ async function doSignIn() {
   }
   if (!r.ok) return setAuthStatus(authMessage(r.data, 'Sign in failed.'));
 
-  if ($('authRemember').checked) saveCredentials(username, password);
+  if ($('authRemember').checked) saveCredentials(username, verifier);
   else clearCredentials();
 
   adoptSession(r.data);
@@ -517,7 +537,7 @@ async function doRegister() {
   });
   if (!r.ok) return setAuthStatus(authMessage(r.data, 'Registration failed.'));
 
-  if ($('authRemember').checked) saveCredentials(username, password);
+  if ($('authRemember').checked) saveCredentials(username, verifier);
 
   adoptSession(r.data);
   await restoreSession();
@@ -2178,6 +2198,11 @@ function loadChatById(chatId) {
       fetchRemoteCharacters().catch(() => {}),
       restoreSession().catch(() => {}),
     ]);
+
+    // If a legacy remember-me entry (plaintext password) is still sitting in
+    // localStorage, savedCredentials() upgrades it to the v2 verifier format
+    // on read — even when the session above was valid and never looked at it.
+    savedCredentials().catch(() => {});
 
     // Backup/merge runs in the background — it must not hold the UI hostage.
     cloudSyncOnBoot().catch(() => {});
