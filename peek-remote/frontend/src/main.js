@@ -396,7 +396,17 @@ async function attachHostAudio(s) {
   }
   // Fallback: browser display-audio (best effort, Windows/WebView2).
   try {
-    const st = await navigator.mediaDevices.getDisplayMedia({ video: false, audio: true });
+    const attempts = [
+      { video: false, audio: true },
+      { audio: true },
+      { video: false },
+    ];
+    let lastErr = null, st = null;
+    for (const constraints of attempts) {
+      try { st = await navigator.mediaDevices.getDisplayMedia(constraints); break; }
+      catch (e) { lastErr = e; st = null; }
+    }
+    if (!st) throw (lastErr || new Error('display audio unavailable'));
     const track = st.getAudioTracks()[0];
     if (!track) throw new Error('display capture produced no audio track');
     s.fallbackAudioStream = st;
@@ -444,9 +454,24 @@ async function startHost() {
   setAudioChip(false, 'audio pending…');
   status(s, 'pick a screen to share…');
   try {
-    s.stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: 15, max: 30 } }, audio: false,
-    });
+    // WebKit/WebView2 reject constraint objects Chromium accepts. Try, in
+    // order: plain video, bare minimum, then nothing. First that works wins.
+    const attempts = [
+      { video: true, audio: false },
+      { video: true },
+      { audio: false },
+    ];
+    let lastErr = null;
+    for (const constraints of attempts) {
+      try {
+        s.stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+        break;
+      } catch (e) {
+        lastErr = e;
+        s.stream = null;
+      }
+    }
+    if (!s.stream) throw (lastErr || new Error('Screen capture unavailable'));
     if (!current(s)) { s.stream.getTracks().forEach(t => t.stop()); return; }
     s.stream.getVideoTracks()[0].addEventListener('ended', () => { if (current(s)) teardown(); });
     // Audio goes through the app's own helper, not the browser's getDisplayMedia
