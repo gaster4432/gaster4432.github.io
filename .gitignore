@@ -34,3 +34,7 @@ $USERPROFILE/
 state/
 /*.tar.gz
 /*.zip
+
+# Peek Remote — Tauri build output and generated schema
+/peek-remote/src-tauri/target/
+/peek-remote/src-tauri/gen/

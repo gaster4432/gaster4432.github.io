@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Peek Remote</title>
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+
+<!-- ── menu ── -->
+<div id="menu">
+  <div class="card">
+    <h1>Peek <span class="accent">Remote</span></h1>
+    <p class="sub">Same mailbox, same 6-character code — now with the keyboard and mouse too.</p>
+    <div class="big-actions">
+      <button class="btn primary" id="optHost">Share this screen</button>
+      <button class="btn" id="optJoin">Join a friend's screen</button>
+    </div>
+    <p class="fineprint">The sharer must click <b>Allow control</b> before a single input reaches this machine.
+      That toggle lives in Rust, not in the page, and <b>Ctrl+Alt+Q</b> cuts it instantly.</p>
+  </div>
+</div>
+
+<!-- ── host view ── -->
+<div id="hostView" class="panel">
+  <div class="card">
+    <div class="row space-between">
+      <h2>Your screen is shared</h2>
+      <button class="btn danger" id="stopBtn">Stop sharing</button>
+    </div>
+
+    <div class="code-block">
+      <div class="code-label">6-character code</div>
+      <div class="code" id="codeOut">······</div>
+      <button class="btn small" id="copyBtn">Copy</button>
+    </div>
+
+    <video id="previewVideo" muted playsinline autoplay></video>
+    <div class="vid-cap">what your friend sees</div>
+
+    <div class="consent">
+      <button class="btn consent-btn" id="controlBtn" aria-pressed="false">
+        Allow control of this machine
+      </button>
+      <div class="consent-note">
+        Input from your friend is ignored until you click this. The toggle is enforced in Rust
+        (a page bug cannot bypass it). <b>Ctrl+Alt+Q</b> disables it from anywhere.
+      </div>
+    </div>
+
+    <div id="hostBanner" class="banner hidden">REMOTE CONTROL IS LIVE — Ctrl+Alt+Q to cut it</div>
+    <p id="hostStatus" class="status" hidden><span id="hostStatusText"></span></p>
+  </div>
+</div>
+
+<!-- ── join view ── -->
+<div id="joinView" class="panel">
+  <div class="card wide">
+    <div class="row space-between">
+      <h2>Watching your friend</h2>
+      <button class="btn danger" id="leaveBtn">Leave</button>
+    </div>
+
+    <div class="code-entry">
+      <input id="codeInput" autocomplete="off" spellcheck="false" maxlength="6" placeholder="CODE" aria-label="Room code">
+      <button class="btn primary" id="joinBtn">Connect</button>
+    </div>
+    <p id="joinStatus" class="status" hidden><span id="joinStatusText"></span></p>
+
+    <div id="vidWrap">
+      <video id="remoteVideo" playsinline autoplay></video>
+      <div class="btn-row">
+        <button class="btn" id="retryBtn">Retry connection</button>
+        <button class="btn" id="fsBtn">Fullscreen</button>
+        <button class="btn" id="controlReqBtn" aria-pressed="false">Control: off</button>
+      </div>
+      <p class="fineprint">Click the video first — the mouse is captured relative to it.
+        Your friend must click <b>Allow control</b> on their side before anything you do reaches their machine.</p>
+    </div>
+    <p id="liveStatus" class="status" hidden><span id="liveStatusText"></span></p>
+  </div>
+</div>
+
+<script src="src/main.js"></script>
+</body>
+</html>
