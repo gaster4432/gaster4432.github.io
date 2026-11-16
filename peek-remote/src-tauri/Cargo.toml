@@ -1,6 +1,6 @@
 [package]
 name = "peek-remote"
-version = "0.2.1"
+version = "0.2.2"
 description = "Peek Remote — remote screen share + input control over the Peek v4 mailbox"
 edition = "2021"
 

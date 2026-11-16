@@ -443,7 +443,7 @@ function setHostControlUI(on) {
   hostCtl.gate = !!on;
   renderHostCtl();
 }
-async function startHost() {
+function beginHost() {
   if (hostStarting) return;
   hostStarting = true;
   dispose(session);
@@ -453,26 +453,24 @@ async function startHost() {
   setHostControlUI(false);
   setAudioChip(false, 'audio pending…');
   status(s, 'pick a screen to share…');
+  // WebKit requires the getDisplayMedia call to originate from the gesture
+  // handler's synchronous body — nothing may hop ahead of it.
+  let mediaPromise;
   try {
-    // WebKit/WebView2 reject constraint objects Chromium accepts. Try, in
-    // order: plain video, bare minimum, then nothing. First that works wins.
-    const attempts = [
-      { video: true, audio: false },
-      { video: true },
-      { audio: false },
-    ];
-    let lastErr = null;
-    for (const constraints of attempts) {
-      try {
-        s.stream = await navigator.mediaDevices.getDisplayMedia(constraints);
-        break;
-      } catch (e) {
-        lastErr = e;
-        s.stream = null;
-      }
-    }
-    if (!s.stream) throw (lastErr || new Error('Screen capture unavailable'));
-    if (!current(s)) { s.stream.getTracks().forEach(t => t.stop()); return; }
+    mediaPromise = navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  } catch (e) {
+    fail(s, e);
+    hostStarting = false;
+    return;
+  }
+  mediaPromise.then(
+    stream => finishHostStart(s, stream),
+    e => { fail(s, e); hostStarting = false; },
+  );
+}
+async function finishHostStart(s, stream) {
+  try {
+    s.stream = stream;
     s.stream.getVideoTracks()[0].addEventListener('ended', () => { if (current(s)) teardown(); });
     // Audio goes through the app's own helper, not the browser's getDisplayMedia
     // audio path: a hidden "Peek Remote Audio" source created by the native side
@@ -491,8 +489,12 @@ async function startHost() {
     await hostOffer(s);
     status(s, 'waiting for your friend…');
     signalLoop(s);
-  } catch (e) { fail(s, e.name === 'NotAllowedError' ? new Error('Screen pick cancelled.') : e); }
-  finally { hostStarting = false; }
+  } catch (e) {
+    if (e.name === 'NotAllowedError') fail(s, new Error('Screen pick cancelled.'));
+    else fail(s, e);
+  } finally {
+    hostStarting = false;
+  }
 }
 
 /* ── joiner ── */
@@ -597,7 +599,7 @@ window.addEventListener('keyup', e => {
 });
 
 /* ── wiring ── */
-$('optHost').onclick = startHost;
+$('optHost').onclick = beginHost;
 $('optJoin').onclick = () => { show('joinView'); $('codeInput').focus(); };
 $('joinBtn').onclick = startJoin;
 $('retryBtn').onclick = () => { $('joinBtn').disabled = false; startJoin(); };
