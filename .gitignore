@@ -41,3 +41,6 @@ state/
 
 # Rust build output in workspace members built in-place
 target/
+
+# release artifacts, uploaded to GitHub Releases not committed
+release-artifacts/
