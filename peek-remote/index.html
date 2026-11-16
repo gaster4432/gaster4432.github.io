@@ -8,7 +8,7 @@
 <meta name="color-scheme" content="dark">
 <title>Peek Remote · Download</title>
 <meta property="og:title" content="Peek Remote · Download">
-<meta property="og:description" content="Share your screen AND hand over keyboard and mouse. One self-contained AppImage for Linux (Steam Deck included) — no system installs, no root.">
+<meta property="og:description" content="Share your screen AND hand over keyboard and mouse. One self-contained AppImage for Linux (Steam Deck included) + portable Windows .exe. No accounts, no root.">
 <meta property="og:url" content="https://gaster4432.github.io/peek-remote/">
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://gaster4432.github.io/images/og-banner.png">
@@ -17,7 +17,7 @@
 <meta property="og:image:alt" content="gaster4432 — projects & things">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Peek Remote · Download">
-<meta name="twitter:description" content="Share your screen AND hand over keyboard and mouse. One self-contained AppImage for Linux — no system installs, no root.">
+<meta name="twitter:description" content="Share your screen AND hand over keyboard and mouse. One self-contained AppImage for Linux + portable Windows .exe. No accounts, no root.">
 <meta name="twitter:image" content="https://gaster4432.github.io/images/og-banner.png">
 <link rel="icon" type="image/x-icon" href="/favicon-v2.ico">
 <link rel="canonical" href="https://gaster4432.github.io/peek-remote/">
@@ -34,7 +34,7 @@
 
 <main class="nx-main">
   <section class="nx-hero">
-    <span class="welcome-badge">&middot; Linux &middot; Steam Deck &middot; x86_64</span>
+    <span class="welcome-badge">&middot; Linux &middot; Windows &middot; Steam Deck &middot; x86_64</span>
     <h1>Peek Remote</h1>
     <p class="nx-hero-sub">The screen share you already know, plus desktop audio — and the keyboard and mouse, consent-gated, peer-to-peer, no accounts.</p>
     <div class="nx-hero-actions">
@@ -43,7 +43,14 @@
         Download v0.2.0 for Linux (AppImage)
       </a>
       <p class="nx-hero-meta" style="margin-top:10px">Latest is always here — or <a href="https://github.com/gaster4432/gaster4432.github.io/releases/download/v0.2.0/peek-remote.AppImage" style="color:var(--brand-3)">pin the direct v0.2.0 link</a>.</p>
-      <a class="btn btn-ghost nx-btn-discord-ghost" href="https://github.com/gaster4432/gaster4432.github.io/releases" target="_blank" rel="noopener noreferrer">Windows build — coming (see Releases)</a>
+
+      <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:4px">
+        <code style="font-size:11px;background:rgba(255,255,255,0.06);padding:6px 10px;border-radius:6px;user-select:all">curl -fsSL https://gaster4432.github.io/peek-remote/install.sh | bash</code>
+      </div>
+      <p class="nx-hero-meta" style="margin-top:6px;opacity:0.75">One command: sets up uinput access, installs to your launcher, no reboot.</p>
+
+      <a class="btn btn-ghost nx-btn-discord-ghost" href="https://github.com/gaster4432/gaster4432.github.io/releases/download/v0.2.0/peek-remote-windows-x86_64.exe" target="_blank" rel="noopener noreferrer">Download for Windows (.exe, portable)</a>
+      <p class="nx-hero-meta" style="opacity:0.7;margin-top:2px">Windows: unsigned — SmartScreen &rarr; More info &rarr; Run anyway. Or build from source.</p>
       <a class="btn btn-ghost nx-btn-discord-ghost" href="https://github.com/gaster4432/gaster4432.github.io" target="_blank" rel="noopener noreferrer">View Source on GitHub</a>
     </div>
     <p class="nx-hero-meta">~104 MB &middot; one self-contained file &middot; runs from <code>$HOME</code> &middot; no root, no system installs, works on read-only SteamOS</p>
@@ -139,10 +146,10 @@
     <div class="project-card project-card-empty nx-mods-card">
       <div class="project-info">
         <ol class="nx-steps">
-          <li>Drop <code>peek-remote.AppImage</code> in <code>~/Applications</code> (USB, scp, rsync — anything).</li>
-          <li><code>chmod +x ~/Applications/peek-remote.AppImage</code> and double-click (Desktop Mode), or run it from Konsole.</li>
+          <li><strong>One command does all of it:</strong> <code>curl -fsSL https://gaster4432.github.io/peek-remote/install.sh | bash</code> — installs the AppImage + launcher entry, sets up uinput access (Deck read-only handled automatically), no reboot, no logout.</li>
+          <li>Prefer to click? Download <code>peek-remote.AppImage</code> into <code>~/Applications</code>, <code>chmod +x</code> it, then create a <code>~/.local/share/applications/peek-remote.desktop</code> entry pointing at it (the installer script writes one — copy that).</li>
           <li>Deck complaint about FUSE? <code>APPIMAGE_EXTRACT_AND_RUN=1 ~/Applications/peek-remote.AppImage</code></li>
-          <li>For input injection, uinput needs permission: <code>sudo usermod -a -G uinput $USER</code>, or a one-time <code>60-uinput.rules</code> via <code>steamos-readonly disable</code> then <code>enable</code>. The share/UI half needs nothing.</li>
+          <li>Input access is the only privileged bit: a udev rule granting <code>uaccess</code> your user on <code>/dev/uinput</code>. Nothing in <code>/usr</code>, no group changes, no logout.</li>
           <li>Gaming Mode won't work — gamescope has no capture portal. Desktop Mode only.</li>
         </ol>
       </div>
