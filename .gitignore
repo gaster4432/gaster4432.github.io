@@ -38,3 +38,6 @@ state/
 # Peek Remote — Tauri build output and generated schema
 /peek-remote/src-tauri/target/
 /peek-remote/src-tauri/gen/
+
+# Rust build output in workspace members built in-place
+target/

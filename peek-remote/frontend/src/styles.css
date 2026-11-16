@@ -117,6 +117,19 @@ h2 { font-size: 19px; letter-spacing: -0.3px; }
 .video-shell { position: relative; display: block; }
 .video-shell video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius); border: 1px solid var(--border); outline: none; display: block; }
 .video-shell video:focus { border-color: var(--brand-3); }
+.native-preview {
+  width: 100%; aspect-ratio: 16 / 9;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: radial-gradient(120% 120% at 50% 20%, rgba(103,232,249,0.06), transparent), #000;
+  color: rgba(255,255,255,0.85); text-align: center; padding: 24px;
+}
+.native-preview-title {
+  font-size: 13px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--brand-3); text-shadow: 0 0 18px rgba(103,232,249,0.35);
+}
+.native-preview-sub { font-size: 12px; line-height: 1.5; color: rgba(255,255,255,0.55); max-width: 42ch; }
 .vid-cap { font-size: 10px; color: rgba(255,255,255,0.4); margin: 6px 0 10px; }
 
 .control-chip {

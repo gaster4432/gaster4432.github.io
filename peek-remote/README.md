@@ -20,10 +20,12 @@ only ever carries the offer/answer/ICE.
 | v4 mailbox protocol client (JS, same as `peek/`) | compiles, logic ported 1:1 |
 | WebRTC + RTCDataChannel in the Tauri webview | compiles |
 | Windows input injection (SendInput, `windows` crate) | **compiles clean**; not run against a live machine yet |
-| Linux input injection (`/dev/uinput` via `evdev`) | **compiles clean against `x86_64-unknown-linux-gnu`**; needs `/dev/uinput` permissions at runtime |
+| Linux input injection (`/dev/uinput` via `evdev`) | **compiles clean;** `inject()` verified by the injector daemon path; needs `/dev/uinput` permissions at runtime |
 | Windows app (`cargo check`) | 0 errors, 0 warnings |
 | Mac/other platforms | unsupported (no backend) |
-| Steam Deck screen capture in WebKitGTK (Wayland) | **unknown** — see "Wayland reality check" |
+| **Native GStreamer host (`peek-rt`)** | **verified end-to-end in WSL: pipeline → webrtcbin → offer → mailbox → friend's Chrome receives H.264 (readyState 4). Test pattern and PipeWire/Portal code paths both build; portal capture unverified — needs the Deck.** |
+
+The full stack is exercised nightly on WSL: code issued → offer posted → Chrome joins → video decodes. **Nothing has been run on a real Wayland/Steam Deck yet** — the capture half (pipewiresrc + portal) is written but not proven on Plasma. |
 
 This has **never been run end-to-end yet**. Treat every layer above the compile step as untested.
 
@@ -66,16 +68,11 @@ WebKitGTK `getUserMedia` capture is unverified — mic capture behavior in a Tau
 varies. If it fails on your Deck, the chip will say so and video survives regardless.
 ## Wayland reality check (Steam Deck)
 
-- Capture: the webview path depends on WebKitGTK supporting `getDisplayMedia`. If it does not,
-  the correct path is **PipeWire + xdg-desktop-portal ScreenCast** in Rust (`ashpd` + `pipewire`),
-  which is a real chunk of work that is NOT in this build yet. If `getDisplayMedia` fails on your
-  deck, that is why — it is expected, and the portal backend is phase 2.
+- **Capture path — native GStreamer is the answer.** The webview path never worked on Plasma/WebKitGTK. The host is now a Rust + GStreamer pipeline: `pipewiresrc` (portal screencast via `ashpd`) → `x264enc` → `webrtcbin`, signaling through the same v4 mailbox. **The Deck's screen capture has not been run on the Deck yet** — treat the first on-deck run as the make-or-break check (portal grant + x264 settings).
 - Gaming Mode (gamescope) has no portal and no input injection hook — **Desktop Mode only**.
-- Input: uinput works under Wayland regardless of compositor (that is its whole point), but the
-  app must reach `/dev/uinput`. Either add a udev rule + `uinput` group, or run input-privileged.
-  `peek-remote` does not escalate privileges by itself — by design.
-- Absolute mouse: normalized 0..65535 axis, compositor scales it. Works on X11 and KDE Plasma/Wayland
-  in the common case; verify on your Deck.
+- Input: uinput works under Wayland regardless of compositor (that is its whole point), but the app must reach `/dev/uinput`. Either add a udev rule + `uinput` group, or run input-privileged. `peek-remote` does not escalate privileges by itself — by design. The friend's events now arrive on the native `peek-remote-control` data channel and are parsed/injected in Rust; the page carries zero input logic for the native path.
+- Absolute mouse: normalized 0..65535 axis, compositor scales it. Works on X11 and KDE Plasma/Wayland in the common case; verify on your Deck.
+- Re-join: if the friend rejoins after a clean disconnect, the server bumps the negotiation and the host must re-offer. Today that requires **stop + share again** (a fresh code); in-app re-negotiation is a known limitation, surfaced in the UI as a clear message — not silently broken.
 
 ## Build & run on Windows
 
@@ -103,7 +100,9 @@ sudo steamos-readonly enable             # back to read-only
 # 2. a builder container in $HOME (does not touch /usr)
 distrobox create --name peek-build --image archlinux
 distrobox enter peek-build
-sudo pacman -S --needed base-devel rustup nodejs npm webkit2gtk-4.1 patchelf fuse2
+sudo pacman -S --needed base-devel rustup nodejs npm webkit2gtk-4.1 patchelf fuse2 \
+  gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly \
+  gst-plugin-pipewire libx264 pipewire
 rustup default stable
 exit
 
@@ -162,8 +161,8 @@ peek-signal.duckdns.org are required.**
 
 ## What is deliberately not here yet
 
-- Native PipeWire/portal capture for Linux/Wayland (phase 2; webview path tried first)
-- Audio capture
+- Audio capture on the native path (the pipeline is video-only today; the hidden-remap-source path still exists in-tree but is not wired into the native flow)
+- In-app re-negotiation on rejoin (today: stop + share again, UI says so)
+- AppImage bundling of GStreamer's runtime plugin tree (the build still needs `gst-plugin-pipewire`/`gstreamer` from the image; self-contained bundle is the next milestone)
 - Clipboard sharing, file transfer, multi-monitor selection UI
-- Real packaging (AppImage / .msi) — `bundle.active` is false; `tauri build` needs targets set
 - Code review by anyone but me and one compiler — read `src-tauri/src/` before running it

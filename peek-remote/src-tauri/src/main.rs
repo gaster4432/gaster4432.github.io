@@ -1,7 +1,7 @@
 // Peek Remote — the Rust half of the app.
 //
 // Safety model:
-//   * `CONTROL` (AtomicBool) is the ONLY gate for input injection. The
+//   * `gate::CONTROL` (AtomicBool) is the ONLY gate for input injection. The
 //     frontend can ask to flip it (`set_control`), the host's own click
 //     toggles it, and Ctrl+Alt+Q forces it off from anywhere on Windows.
 //   * The viewer machine cannot inject until the host flips the toggle.
@@ -10,18 +10,26 @@
 // Protocol: identical to peek/index.html — same v4 mailbox, same codes.
 // Input (joiner → host) rides an RTCDataChannel created by the host inside
 // the existing WebRTC offer, so the signaling server never changes.
+//
+// On Linux/Wayland the whole media path is native (GStreamer via peek-rt);
+// the webview never touches WebRTC for the host side. The joiner side keeps
+// the existing browser WebRTC, unchanged.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod audio;
+mod gate;
 mod input;
+
+#[cfg(target_os = "linux")]
+mod native_share;
+#[cfg(not(target_os = "linux"))]
+#[path = "native_share_stub.rs"]
+mod native_share;
 
 use audio::{audio_setup, audio_teardown};
 use input::InjectEvent;
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, Ordering};
-
-static CONTROL: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Serialize)]
 pub struct ControlState {
@@ -30,7 +38,8 @@ pub struct ControlState {
 
 #[tauri::command]
 fn set_control(enabled: bool, app: tauri::AppHandle) -> Result<ControlState, String> {
-  CONTROL.store(enabled, Ordering::SeqCst);
+  gate::set(enabled);
+  native_share::announce_gate(enabled);
   use tauri::Emitter;
   app.emit("control-state", ControlState { enabled }).map_err(|e| e.to_string())?;
   Ok(ControlState { enabled })
@@ -38,15 +47,41 @@ fn set_control(enabled: bool, app: tauri::AppHandle) -> Result<ControlState, Str
 
 #[tauri::command]
 fn control_state() -> ControlState {
-  ControlState { enabled: CONTROL.load(Ordering::SeqCst) }
+  ControlState { enabled: gate::is_open() }
 }
 
 #[tauri::command]
 fn inject(event: InjectEvent) -> Result<(), String> {
-  if !CONTROL.load(Ordering::SeqCst) {
+  if !gate::is_open() {
     return Err("control is not allowed on this machine".into());
   }
   input::inject(event)
+}
+
+#[tauri::command]
+async fn start_native_share(
+  app: tauri::AppHandle,
+  mode: Option<String>,
+) -> Result<serde_json::Value, String> {
+  let code = native_share::start(app, mode).await?;
+  Ok(serde_json::json!({ "code": code }))
+}
+
+#[tauri::command]
+fn stop_native_share(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+  native_share::stop(&app);
+  use tauri::Emitter;
+  let _ = app.emit("native-share", serde_json::json!({ "kind": "stopped" }));
+  Ok(serde_json::json!({ "stopped": true }))
+}
+
+#[tauri::command]
+fn native_share_state() -> serde_json::Value {
+  let running = native_share::running_code().is_some();
+  serde_json::json!({
+    "running": running,
+    "code": native_share::running_code(),
+  })
 }
 
 /// Windows-only global panic hotkey: Ctrl+Alt+Q cuts remote control
@@ -69,7 +104,7 @@ fn install_kill_hotkey(app: tauri::AppHandle) {
         let r = GetMessageW(&mut msg, None, 0, 0);
         if r.0 <= 0 { break; }
         if msg.message == WM_HOTKEY {
-          CONTROL.store(false, Ordering::SeqCst);
+          gate::set(false);
           use tauri::Emitter;
           let _ = app.emit("control-cut", ());
         }
@@ -88,12 +123,23 @@ fn main() {
     })
     // Unload our hidden audio device when the window is closed properly.
     // The JS half also calls audio_teardown on dispose; this is the backstop.
-    .on_window_event(|_window, event| {
+    .on_window_event(|window, event| {
+      use tauri::Manager;
       if let tauri::WindowEvent::CloseRequested { .. } = event {
         audio::teardown();
+        native_share::stop(window.app_handle());
       }
     })
-    .invoke_handler(tauri::generate_handler![set_control, control_state, inject, audio_setup, audio_teardown])
+    .invoke_handler(tauri::generate_handler![
+      set_control,
+      control_state,
+      inject,
+      audio_setup,
+      audio_teardown,
+      start_native_share,
+      stop_native_share,
+      native_share_state,
+    ])
     .run(tauri::generate_context!())
     .expect("error while running Peek Remote");
 }
