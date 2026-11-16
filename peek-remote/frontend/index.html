@@ -10,24 +10,25 @@
 <body>
 
 <!-- ── menu ── -->
-<div id="menu">
-  <div class="card">
+<div id="menu" class="show">
+  <div class="card menu-card">
+    <div class="menu-mark" aria-hidden="true">🐾</div>
     <h1>Peek <span class="accent">Remote</span></h1>
-    <p class="sub">Same mailbox, same 6-character code — now with the keyboard and mouse too.</p>
+    <p class="sub">Watch and listen first. Take control when your friend says go.</p>
     <div class="big-actions">
-      <button class="btn primary" id="optHost">Share this screen</button>
-      <button class="btn" id="optJoin">Join a friend's screen</button>
+      <button class="btn primary big" id="optHost">Share this screen</button>
+      <button class="btn big" id="optJoin">Join a friend's screen</button>
     </div>
-    <p class="fineprint">The sharer must click <b>Allow control</b> before a single input reaches this machine.
-      That toggle lives in Rust, not in the page, and <b>Ctrl+Alt+Q</b> cuts it instantly.</p>
+    <p class="fineprint">The sharer clicks <b>Allow control</b> to arm it. Control is enforced in Rust,
+      not in the page — and <b>Ctrl+Alt+Q</b> cuts it from anywhere.</p>
   </div>
 </div>
 
 <!-- ── host view ── -->
 <div id="hostView" class="panel">
-  <div class="card">
+  <div class="card host-card">
     <div class="row space-between">
-      <h2>Your screen is shared</h2>
+      <h2>You're sharing</h2>
       <button class="btn danger" id="stopBtn">Stop sharing</button>
     </div>
 
@@ -37,29 +38,37 @@
       <button class="btn small" id="copyBtn">Copy</button>
     </div>
 
-    <video id="previewVideo" muted playsinline autoplay></video>
-    <div class="vid-cap">what your friend sees</div>
+    <div class="vid-wrap">
+      <video id="previewVideo" muted playsinline autoplay></video>
+      <div class="vid-cap">what your friend sees</div>
+    </div>
+
+    <div class="chip-row">
+      <span class="chip chip-audio" id="chipAudio">🔊 audio pending…</span>
+      <span class="chip chip-muted" id="chipControl">control off</span>
+    </div>
 
     <div class="consent">
-      <button class="btn consent-btn" id="controlBtn" aria-pressed="false">
+      <button class="btn consent-btn big" id="controlBtn" aria-pressed="false">
         Allow control of this machine
       </button>
       <div class="consent-note">
-        Input from your friend is ignored until you click this. The toggle is enforced in Rust
-        (a page bug cannot bypass it). <b>Ctrl+Alt+Q</b> disables it from anywhere.
+        Input from your friend is ignored until this is on. It's an on/off gate in Rust — a page
+        bug cannot bypass it. Your friend will hear the Cappy jingle when they grab the wheel.
+        <b>Ctrl+Alt+Q</b> releases control.
       </div>
     </div>
 
-    <div id="hostBanner" class="banner hidden">REMOTE CONTROL IS LIVE — Ctrl+Alt+Q to cut it</div>
+    <div id="hostBanner" class="banner hidden" role="status">🐾 FRIEND IS DRIVING — Ctrl+Alt+Q to release</div>
     <p id="hostStatus" class="status" hidden><span id="hostStatusText"></span></p>
   </div>
 </div>
 
 <!-- ── join view ── -->
 <div id="joinView" class="panel">
-  <div class="card wide">
+  <div class="card wide join-card">
     <div class="row space-between">
-      <h2>Watching your friend</h2>
+      <h2>Watching</h2>
       <button class="btn danger" id="leaveBtn">Leave</button>
     </div>
 
@@ -70,14 +79,23 @@
     <p id="joinStatus" class="status" hidden><span id="joinStatusText"></span></p>
 
     <div id="vidWrap">
-      <video id="remoteVideo" playsinline autoplay></video>
-      <div class="btn-row">
-        <button class="btn" id="retryBtn">Retry connection</button>
-        <button class="btn" id="fsBtn">Fullscreen</button>
-        <button class="btn" id="controlReqBtn" aria-pressed="false">Control: off</button>
+      <div class="video-shell">
+        <video id="remoteVideo" playsinline autoplay></video>
+        <div id="controlChip" class="control-chip hidden">CONTROLLING</div>
+        <button id="playOverlay" class="play-overlay hidden" aria-label="Play the stream with sound">
+          <span class="play-icon">▶</span>
+          <span class="play-text">tap for sound</span>
+        </button>
       </div>
-      <p class="fineprint">Click the video first — the mouse is captured relative to it.
-        Your friend must click <b>Allow control</b> on their side before anything you do reaches their machine.</p>
+      <div class="btn-row">
+        <button class="btn" id="retryBtn">Retry</button>
+        <button class="btn" id="fsBtn">Fullscreen</button>
+        <button class="btn consent-btn" id="controlReqBtn" aria-pressed="false" disabled>Take control</button>
+      </div>
+      <p class="fineprint">
+        You start in <b>watch &amp; listen</b>. Hit <b>Take control</b> to grab the wheel — the sharer must allow it first.
+        To give it back: hit the button again, or press <b>Ctrl+Alt+Q</b> here.
+      </p>
     </div>
     <p id="liveStatus" class="status" hidden><span id="liveStatusText"></span></p>
   </div>

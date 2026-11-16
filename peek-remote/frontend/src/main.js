@@ -14,10 +14,28 @@ const $ = id => document.getElementById(id);
 const invoke = (cmd, args) => window.__TAURI__ ? window.__TAURI__.core.invoke(cmd, args) : Promise.reject(new Error('Not running inside Tauri'));
 
 const remoteVideo = $('remoteVideo');
+const controlReqBtn = $('controlReqBtn');
+const playOverlay = $('playOverlay');
+const controlChip = $('controlChip');
 const mySid = genSid();
 let session = null;
 let hostStarting = false;
 let wantingControl = false;
+let hostAllowed = false; // echoed from the host over the control channel; starts closed on purpose
+const CAPPY = 'assets/cappy.wav';
+function playCappy() { try { new Audio(CAPPY).play().catch(() => {}); } catch {} }
+function playBlip() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return;
+    const ctx = new Ctx(); const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(880, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.16);
+    g.gain.setValueAtTime(0.08, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+    o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.2);
+  } catch {}
+}
 
 const ERRORS = {
   no_host: 'No room with that code — the host may have stopped sharing.',
@@ -47,7 +65,7 @@ function setStatus(el, textEl, text, cls) {
   el.hidden = false;
 }
 function status(s, text, cls = 'wait') {
-  if (!current(s)) return;
+  if (!s || !current(s)) return;
   const prefix = s.role === 'host' ? 'host' : 'join';
   const target = s.role === 'joiner' && s.stage === 'connected' ? 'live' : prefix;
   setStatus($(target + 'Status'), $(target + 'StatusText'), text, cls);
@@ -115,16 +133,24 @@ function dispose(s, notify = true) {
   closePc(s);
   s.stream?.getTracks().forEach(t => t.stop());
   // If we were the host, make sure a stale machine cannot stay controllable.
-  if (s.role === 'host') invoke('set_control', { enabled: false }).catch(() => {});
+  if (s.role === 'host') {
+    invoke('set_control', { enabled: false }).catch(() => {});
+    invoke('audio_teardown').catch(() => {});
+  }
 }
 function teardown() {
   dispose(session);
   session = null;
-  $('previewVideo').srcObject = null;
-  remoteVideo.srcObject = null;
   wantingControl = false;
-  show('menu');
+  hostAllowed = false;
+  hostCtl.gate = false;
+  hostCtl.grabbed = false;
+  renderHostCtl();
   resetControlButton();
+  controlChip.classList.add('hidden');
+  playOverlay.classList.add('hidden');
+  setAudioChip(false, 'audio pending…');
+  show('menu');
   $('joinStatus').hidden = true;
   $('joinBtn').disabled = false;
   $('retryBtn').disabled = false;
@@ -184,20 +210,47 @@ function createPc(s, config) {
   if (s.role === 'host') {
     s.stream.getTracks().forEach(t => pc.addTrack(t, s.stream));
     // One channel, created by the host so it exists in the same offer SDP —
-    // no signaling change needed. Carries control messages joiner → host.
+    // no signaling change needed. Carries control both ways:
+    //   joiner → host: input events + { t: 'grab', on }
+    //   host   → joiner: { t: 'gate', on } — the host's master consent
     s.dc = pc.createDataChannel('peek-remote-control', { ordered: true });
     wireHostChannel(s);
+    s.dc.addEventListener('open', () => announceGate(s));
   } else {
     pc.addEventListener('track', e => { if (active()) gotRemoteStream(s, e); });
     pc.addEventListener('datachannel', e => {
       if (!active()) return;
       if (e.channel.label !== 'peek-remote-control') return;
       s.dc = e.channel;
-      e.channel.addEventListener('open', () => status(s, 'live — control channel open', 'live'));
-      e.channel.addEventListener('close', () => { wantingControl = false; resetControlButton(); status(s, 'control channel closed', 'wait'); });
+      e.channel.addEventListener('open', () => {
+        status(s, 'live — waiting for the sharer to arm control…', 'wait');
+        resetControlButton();
+      });
+      e.channel.addEventListener('close', () => { releaseControl(s, { announce: false }); status(s, 'control channel closed', 'wait'); });
+      e.channel.addEventListener('message', e => handleHostGate(s, e));
     });
   }
   return pc;
+}
+function announceGate(s) {
+  invoke('control_state').then(st => {
+    if (!current(s) || !s.dc || s.dc.readyState !== 'open') return;
+    try { s.dc.send(JSON.stringify({ t: 'gate', on: !!(st && st.enabled) })); } catch {}
+  }).catch(() => {});
+}
+function handleHostGate(s, e) {
+  if (!current(s)) return;
+  let msg;
+  try { msg = JSON.parse(e.data); } catch { return; }
+  if (msg.t !== 'gate') return;
+  hostAllowed = !!msg.on;
+  controlReqBtn.disabled = !hostAllowed;
+  if (!hostAllowed && wantingControl) {
+    releaseControl(s, { announce: true });
+    status(s, 'sharer released control', 'wait');
+  } else {
+    status(s, hostAllowed ? 'sharer armed control — take the wheel' : 'waiting for the sharer to arm control…', 'wait');
+  }
 }
 function wireHostChannel(s) {
   const dc = s.dc;
@@ -205,8 +258,13 @@ function wireHostChannel(s) {
     if (!current(s)) return;
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
-    // Rust decides. If control is not allowed right now the command is a
-    // no-op returning an error — deliberately silent, no oracle for the friend.
+    if (msg && msg.t === 'grab') {
+      hostCtl.grabbed = !!msg.on;
+      renderHostCtl();
+      if (msg.on) playCappy(); else playBlip();
+      return;
+    }
+    // Input events. Rust decides; a disallowed call fails silently by design.
     invoke('inject', { event: msg }).catch(() => {});
   });
 }
@@ -292,17 +350,88 @@ async function signalLoop(s) {
   }
 }
 
+/* ── host audio: hidden device first, honest degrade after ── */
+function setAudioChip(on, text) {
+  const c = $('chipAudio');
+  if (!c) return;
+  c.textContent = (on ? '🔊 ' : '🔇 ') + text;
+  c.className = 'chip chip-audio ' + (on ? 'on' : 'off');
+}
+
+/* The hidden "Peek Remote Audio" source created by the native helper is the
+ * only thing carrying desktop mix. It shows up as a normal mic input — we
+ * pick it by label, exactly like the Deck needed a manual VirtualSource. */
+async function captureHiddenMic() {
+  let inputs = await navigator.mediaDevices.enumerateDevices();
+  if (!inputs.some(d => d.kind === 'audioinput' && d.label)) {
+    const p = await navigator.mediaDevices.getUserMedia({ audio: true });
+    p.getTracks().forEach(t => t.stop());
+    inputs = await navigator.mediaDevices.enumerateDevices();
+  }
+  const match = inputs.find(d => d.kind === 'audioinput' && /peek\s*remote/i.test(d.label));
+  if (!match) throw new Error('hidden "Peek Remote Audio" source not visible to the page');
+  return navigator.mediaDevices.getUserMedia({
+    video: false,
+    audio: {
+      deviceId: { exact: match.deviceId },
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+    },
+  });
+}
+
+async function attachHostAudio(s) {
+  // Normal way: the native app loaded our hidden source.
+  try {
+    const res = await invoke('audio_setup');
+    if (!res.ok) throw new Error(res.reason || 'audio helper unavailable');
+    const stream = await captureHiddenMic();
+    const track = stream.getAudioTracks()[0];
+    if (!track) throw new Error('hidden device produced no audio track');
+    s.audioStream = stream;
+    s.stream.addTrack(track);
+    setAudioChip(true, 'desktop audio — hidden device');
+    return;
+  } catch (e) {
+    console.warn('[peek-remote] hidden-device audio failed:', e && e.message ? e.message : e);
+  }
+  // Fallback: browser display-audio (best effort, Windows/WebView2).
+  try {
+    const st = await navigator.mediaDevices.getDisplayMedia({ video: false, audio: true });
+    const track = st.getAudioTracks()[0];
+    if (!track) throw new Error('display capture produced no audio track');
+    s.fallbackAudioStream = st;
+    s.stream.addTrack(track);
+    setAudioChip(true, 'desktop audio — display capture');
+    return;
+  } catch (e) {
+    console.warn('[peek-remote] display-audio fallback failed:', e && e.message ? e.message : e);
+  }
+  setAudioChip(false, 'video only — no audio path');
+}
+
 /* ── host ── */
-function resetControlButton() {
-  const btn = $('controlReqBtn');
-  btn.setAttribute('aria-pressed', 'false');
-  btn.textContent = 'Control: off';
+const hostCtl = { gate: false, grabbed: false };
+function renderHostCtl() {
+  const btn = $('controlBtn');
+  btn.setAttribute('aria-pressed', String(hostCtl.gate));
+  btn.textContent = !hostCtl.gate ? 'Allow control of this machine'
+    : hostCtl.grabbed ? 'Release the wheel' : 'Release control';
+  const banner = $('hostBanner');
+  if (!hostCtl.gate) {
+    banner.classList.add('hidden');
+  } else {
+    banner.classList.remove('hidden');
+    banner.textContent = hostCtl.grabbed
+      ? '🐾 FRIEND IS DRIVING — Ctrl+Alt+Q to release'
+      : '🐾 CONTROL ARMED — friend can take it (Ctrl+Alt+Q releases)';
+  }
+  const chip = $('chipControl');
+  chip.textContent = !hostCtl.gate ? 'control off' : hostCtl.grabbed ? 'FRIEND DRIVING' : 'control armed';
+  chip.className = 'chip chip-control' + (hostCtl.gate ? ' on' : '');
 }
 function setHostControlUI(on) {
-  const btn = $('controlBtn');
-  btn.setAttribute('aria-pressed', String(on));
-  btn.textContent = on ? 'STOP allowing control (on this machine)' : 'Allow control of this machine';
-  $('hostBanner').classList.toggle('hidden', !on);
+  hostCtl.gate = !!on;
+  renderHostCtl();
 }
 async function startHost() {
   if (hostStarting) return;
@@ -312,6 +441,7 @@ async function startHost() {
   show('hostView');
   $('codeOut').textContent = '······';
   setHostControlUI(false);
+  setAudioChip(false, 'audio pending…');
   status(s, 'pick a screen to share…');
   try {
     s.stream = await navigator.mediaDevices.getDisplayMedia({
@@ -319,6 +449,11 @@ async function startHost() {
     });
     if (!current(s)) { s.stream.getTracks().forEach(t => t.stop()); return; }
     s.stream.getVideoTracks()[0].addEventListener('ended', () => { if (current(s)) teardown(); });
+    // Audio goes through the app's own helper, not the browser's getDisplayMedia
+    // audio path: a hidden "Peek Remote Audio" source created by the native side
+    // (PipeWire/Pulse monitor remap). If that fails we degrade honestly.
+    await attachHostAudio(s);
+    if (!current(s)) return;
     $('previewVideo').srcObject = s.stream;
     status(s, 'asking the server for a code…');
     s.config = await prepare(s);
@@ -345,6 +480,10 @@ async function startJoin() {
   }
   dispose(session, session?.code !== code);
   const s = session = newSession('joiner', code);
+  wantingControl = false;
+  hostAllowed = false;
+  controlChip.classList.add('hidden');
+  playOverlay.classList.add('hidden');
   remoteVideo.srcObject = null;
   show('joinView');
   $('joinBtn').disabled = true;
@@ -365,10 +504,37 @@ function gotRemoteStream(s, e) {
   if (!s.remoteStream.getTracks().includes(e.track)) s.remoteStream.addTrack(e.track);
   if (remoteVideo.srcObject !== s.remoteStream) remoteVideo.srcObject = s.remoteStream;
   $('vidWrap').classList.add('show');
-  remoteVideo.play().catch(() => {});
+  remoteVideo.play().then(() => playOverlay.classList.add('hidden')).catch(() => playOverlay.classList.remove('hidden'));
 }
 
 /* ── control (joiner side): forward events to the host over the channel ── */
+function grabControl(s) {
+  wantingControl = true;
+  controlReqBtn.setAttribute('aria-pressed', 'true');
+  controlReqBtn.textContent = 'Release control';
+  controlChip.classList.remove('hidden');
+  if (session?.dc?.readyState === 'open') {
+    try { session.dc.send(JSON.stringify({ t: 'grab', on: true })); } catch {}
+  }
+  playCappy();
+}
+function releaseControl(s, opts) {
+  const announce = !opts || opts.announce !== false;
+  const wasActive = wantingControl;
+  wantingControl = false;
+  controlReqBtn.setAttribute('aria-pressed', 'false');
+  controlReqBtn.textContent = 'Take control';
+  controlChip.classList.add('hidden');
+  if (announce && session?.dc?.readyState === 'open') {
+    try { session.dc.send(JSON.stringify({ t: 'grab', on: false })); } catch {}
+  }
+  if (wasActive) playBlip();
+}
+function resetControlButton() {
+  controlReqBtn.setAttribute('aria-pressed', 'false');
+  controlReqBtn.textContent = 'Take control';
+  controlReqBtn.disabled = !hostAllowed;
+}
 function controlActive() {
   return wantingControl && session?.dc?.readyState === 'open' && $('vidWrap').classList.contains('show');
 }
@@ -388,6 +554,13 @@ remoteVideo.addEventListener('mouseup', e => { e.preventDefault(); sendControl({
 remoteVideo.addEventListener('contextmenu', e => { if (controlActive()) e.preventDefault(); });
 remoteVideo.addEventListener('wheel', e => { if (controlActive()) { e.preventDefault(); sendControl({ t: 'wheel', dy: e.deltaY }); } }, { passive: false });
 window.addEventListener('keydown', e => {
+  // The panic combo is captured locally on this machine — never forwarded.
+  if (wantingControl && e.ctrlKey && e.altKey && e.code === 'KeyQ') {
+    e.preventDefault();
+    releaseControl(session, { announce: true });
+    status(session, 'wheel released', 'wait');
+    return;
+  }
   if (!controlActive() || e.target === $('codeInput')) return;
   e.preventDefault();
   sendControl({ t: 'keydown', code: e.code });
@@ -411,31 +584,46 @@ $('copyBtn').onclick = () => navigator.clipboard.writeText($('codeOut').textCont
   setTimeout(() => { $('copyBtn').textContent = 'Copy'; }, 1500);
 }).catch(() => {});
 $('controlBtn').onclick = async () => {
-  const now = $('controlBtn').getAttribute('aria-pressed') !== 'true';
+  const now = !hostCtl.gate;
   try {
     const result = await invoke('set_control', { enabled: now });
-    setHostControlUI(result.enabled === true);
-    status(session, result.enabled ? 'control allowed — friend can drive your machine' : 'control cut', result.enabled ? 'live' : 'wait');
+    const on = result && result.enabled === true;
+    hostCtl.grabbed = false; // (dis)arming always drops any grab
+    setHostControlUI(on);
+    if (session?.dc?.readyState === 'open') {
+      try { session.dc.send(JSON.stringify({ t: 'gate', on })); } catch {}
+    }
+    if (session) status(session, on ? 'control armed — waiting for friend to take it' : 'control released', on ? 'live' : 'wait');
   } catch (e) { console.error(e); }
 };
+$('playOverlay')?.addEventListener('click', () => {
+  remoteVideo.play().then(() => playOverlay.classList.add('hidden')).catch(() => {});
+});
 $('controlReqBtn').onclick = () => {
-  wantingControl = !wantingControl;
-  const btn = $('controlReqBtn');
-  btn.setAttribute('aria-pressed', String(wantingControl));
-  btn.textContent = wantingControl ? 'Control: ON (if allowed)' : 'Control: off';
-  if (!wantingControl) return;
-  status(session, 'control requested — your friend must click Allow control', 'wait');
+  if (!session) return;
+  if (wantingControl) { releaseControl(session, { announce: true }); status(session, 'wheel released', 'wait'); return; }
+  if (!hostAllowed) {
+    status(session, 'the sharer hasn’t armed control yet — the wheel stays off until they do', 'wait');
+    return;
+  }
+  grabControl(session);
+  status(session, 'you have the wheel', 'live');
 };
 $('codeInput').addEventListener('input', e => {
   e.target.value = e.target.value.toUpperCase().replace(new RegExp('[^' + CODE_ALPHABET + ']', 'g'), '').slice(0, 6);
 });
 $('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') startJoin(); });
 
-// Host-side kill switch emitted by Rust (Ctrl+Alt+Q): flip the visible UI
-// to match the flag Rust already forced off.
+// Host-side kill switch emitted by Rust (Ctrl+Alt+Q): Rust already forced
+// the flag off; mirror the UI and tell the viewer to let go of the wheel.
 if (window.__TAURI__?.event?.listen) {
   window.__TAURI__.event.listen('control-cut', () => {
-    setHostControlUI(false);
+    hostCtl.gate = false;
+    hostCtl.grabbed = false;
+    renderHostCtl();
+    if (session?.dc?.readyState === 'open') {
+      try { session.dc.send(JSON.stringify({ t: 'gate', on: false })); } catch {}
+    }
     if (session?.role === 'host') status(session, 'control cut (Ctrl+Alt+Q)', 'wait');
   });
 }

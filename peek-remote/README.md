@@ -27,6 +27,43 @@ only ever carries the offer/answer/ICE.
 
 This has **never been run end-to-end yet**. Treat every layer above the compile step as untested.
 
+## Desktop audio (the AppImage is not a browser)
+
+Audio is **not** routed through the browser's `getDisplayMedia` path. The native helper
+owns it, exactly as a desktop app should:
+
+**Linux** — before the peer connection is created, the Rust side loads a hidden
+`module-remap-source` on the default sink's monitor:
+
+```
+pactl load-module module-remap-source \
+  master=$(pactl get-default-sink).monitor \
+  source_name=peek_remote_desktop_audio \
+  source_properties=device.description="Peek Remote Audio"
+```
+
+That is a virtual input that carries **exactly the desktop mix and nothing else** — the
+"hidden device" design. The webview captures it via `getUserMedia` and forwards it as the
+audio track. Loading is idempotent; the module is unloaded on quit (`audio_teardown` on
+dispose + on window close). If the load fails (no pactl / no PipeWire server), the app
+tries the browser display-audio fallback, and if that yields nothing it shares **video
+only** — the chip in the host UI always says which path it got.
+
+**Windows** — unimplemented on purpose this pass. WASAPI loopback (`AUDCLNT_STREAMFLAGS_LOOPBACK`)
+is the correct native backend; the "hidden device" trick is impossible without shipping a
+kernel driver, which we will not do. Best effort today: browser display-audio from WebView2.
+Track the phase-2 note in the README.
+
+| Audio path | Linux | Windows |
+|---|---|---|
+| Hidden remap-source (native helper) | ✔ built — needs pactl + PipeWire/Pulse compat at runtime | ✗ impossible without a driver |
+| Native WASAPI loopback | n/a | ✗ phase 2 |
+| Browser display-audio (fallback) | ✔ attempted | ✔ attempted |
+| Video-only degrade | ✔ automatic with chip | ✔ automatic with chip |
+
+Honest status: the hidden-device path **compiles and runs on the native side**, but the
+WebKitGTK `getUserMedia` capture is unverified — mic capture behavior in a Tauri webview
+varies. If it fails on your Deck, the chip will say so and video survives regardless.
 ## Wayland reality check (Steam Deck)
 
 - Capture: the webview path depends on WebKitGTK supporting `getDisplayMedia`. If it does not,

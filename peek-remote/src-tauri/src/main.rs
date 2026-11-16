@@ -13,8 +13,10 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod audio;
 mod input;
 
+use audio::{audio_setup, audio_teardown};
 use input::InjectEvent;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -81,11 +83,17 @@ fn main() {
     .setup(|app| {
       #[cfg(windows)]
       install_kill_hotkey(app.handle().clone());
-      // Keep the control escape hatch visible above other windows.
       let _ = app.handle(); // window configured alwaysOnTop in tauri.conf.json
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![set_control, control_state, inject])
+    // Unload our hidden audio device when the window is closed properly.
+    // The JS half also calls audio_teardown on dispose; this is the backstop.
+    .on_window_event(|_window, event| {
+      if let tauri::WindowEvent::CloseRequested { .. } = event {
+        audio::teardown();
+      }
+    })
+    .invoke_handler(tauri::generate_handler![set_control, control_state, inject, audio_setup, audio_teardown])
     .run(tauri::generate_context!())
     .expect("error while running Peek Remote");
 }
