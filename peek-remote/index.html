@@ -36,12 +36,13 @@
   <section class="nx-hero">
     <span class="welcome-badge">&middot; Linux &middot; Steam Deck &middot; x86_64</span>
     <h1>Peek Remote</h1>
-    <p class="nx-hero-sub">The screen share you already know, plus the keyboard and mouse — consent-gated, peer-to-peer, no accounts.</p>
+    <p class="nx-hero-sub">The screen share you already know, plus desktop audio — and the keyboard and mouse, consent-gated, peer-to-peer, no accounts.</p>
     <div class="nx-hero-actions">
       <a class="nx-btn-download" id="downloadBtn" href="https://github.com/gaster4432/gaster4432.github.io/releases/latest/download/peek-remote.AppImage" download>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Download for Linux (AppImage)
+        Download v0.2.0 for Linux (AppImage)
       </a>
+      <p class="nx-hero-meta" style="margin-top:10px">Latest is always here — or <a href="https://github.com/gaster4432/gaster4432.github.io/releases/download/v0.2.0/peek-remote.AppImage" style="color:var(--brand-3)">pin the direct v0.2.0 link</a>.</p>
       <a class="btn btn-ghost nx-btn-discord-ghost" href="https://github.com/gaster4432/gaster4432.github.io/releases" target="_blank" rel="noopener noreferrer">Windows build — coming (see Releases)</a>
       <a class="btn btn-ghost nx-btn-discord-ghost" href="https://github.com/gaster4432/gaster4432.github.io" target="_blank" rel="noopener noreferrer">View Source on GitHub</a>
     </div>
@@ -53,11 +54,21 @@
     <div class="nx-grid">
       <div class="project-card project-card-empty nx-feature">
         <div class="project-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+        </div>
+        <div class="project-info">
+          <h3>Desktop audio (Linux)</h3>
+          <p>The app loads a hidden <i>Peek Remote Audio</i> source on the default sink's monitor — real desktop mix, nothing else, zero config. Falls back to video-only with a chip if it can't.</p>
+        </div>
+      </div>
+
+      <div class="project-card project-card-empty nx-feature">
+        <div class="project-icon" aria-hidden="true">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         </div>
         <div class="project-info">
           <h3>Full screen share</h3>
-          <p>Everything Peek does — screen video to a friend's machine or browser over a direct WebRTC connection.</p>
+          <p>Screen video to a friend's machine or browser over a direct WebRTC connection — watch and listen first.</p>
         </div>
       </div>
 
@@ -67,7 +78,7 @@
         </div>
         <div class="project-info">
           <h3>Keyboard + mouse control</h3>
-          <p>Your friend drives your machine when you let them — absolute mouse, wheel, ~90 keycodes, injected locally through uinput on Linux.</p>
+          <p>Connect = watch &amp; listen only. Your friend hits <b>Take control</b> once you click <b>Allow control</b>; they hand it back with the button or Ctrl+Alt+Q — Cappy jingle included. Injected locally via uinput on Linux.</p>
         </div>
       </div>
 
@@ -118,7 +129,7 @@
       <div class="nx-community-text">
         <span class="project-tag">Status</span>
         <h2 id="status-title">Honest beta</h2>
-        <p>v0.1.0 has built clean on Linux and Windows, but it has <b>never been run end-to-end</b>. Screen capture through WebKitGTK on Wayland is the known risky bit — if it fails, the fix is a native PipeWire + portal backend (phase 2). Treat the keyboard/mouse path with the same respect you'd give a loaded gun until it's proven.</p>
+        <p>v0.2.0 builds clean on Linux and Windows, but it has <b>never been run end-to-end</b>. Screen capture through WebKitGTK on Wayland — and mic capture of the hidden <i>Peek Remote Audio</i> source — are the known risky bits. Treat the keyboard/mouse path with the same respect you'd give a loaded gun until it's proven.</p>
       </div>
     </div>
   </section>
