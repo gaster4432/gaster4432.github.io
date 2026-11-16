@@ -40,16 +40,16 @@
     <div class="nx-hero-actions">
       <a class="nx-btn-download" id="downloadBtn" href="https://github.com/gaster4432/gaster4432.github.io/releases/latest/download/peek-remote.AppImage" download>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Download v0.2.0 for Linux (AppImage)
+        Download v0.2.1 for Linux (AppImage)
       </a>
-      <p class="nx-hero-meta" style="margin-top:10px">Latest is always here — or <a href="https://github.com/gaster4432/gaster4432.github.io/releases/download/v0.2.0/peek-remote.AppImage" style="color:var(--brand-3)">pin the direct v0.2.0 link</a>.</p>
+      <p class="nx-hero-meta" style="margin-top:10px">Latest is always here — or <a href="https://github.com/gaster4432/gaster4432.github.io/releases/download/v0.2.1/peek-remote.AppImage" style="color:var(--brand-3)">pin the direct v0.2.1 link</a>.</p>
 
       <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:4px">
         <code style="font-size:11px;background:rgba(255,255,255,0.06);padding:6px 10px;border-radius:6px;user-select:all">curl -fsSL https://gaster4432.github.io/peek-remote/install.sh | bash</code>
       </div>
       <p class="nx-hero-meta" style="margin-top:6px;opacity:0.75">One command: sets up uinput access, installs to your launcher, no reboot.</p>
 
-      <a class="btn btn-ghost nx-btn-discord-ghost" href="https://github.com/gaster4432/gaster4432.github.io/releases/download/v0.2.0/peek-remote-windows-x86_64.exe" target="_blank" rel="noopener noreferrer">Download for Windows (.exe, portable)</a>
+      <a class="btn btn-ghost nx-btn-discord-ghost" href="https://github.com/gaster4432/gaster4432.github.io/releases/download/v0.2.1/peek-remote-windows-x86_64.exe" target="_blank" rel="noopener noreferrer">Download for Windows (.exe, portable)</a>
       <p class="nx-hero-meta" style="opacity:0.7;margin-top:2px">Windows: unsigned — SmartScreen &rarr; More info &rarr; Run anyway. Or build from source.</p>
       <a class="btn btn-ghost nx-btn-discord-ghost" href="https://github.com/gaster4432/gaster4432.github.io" target="_blank" rel="noopener noreferrer">View Source on GitHub</a>
     </div>
@@ -136,7 +136,7 @@
       <div class="nx-community-text">
         <span class="project-tag">Status</span>
         <h2 id="status-title">Honest beta</h2>
-        <p>v0.2.0 builds clean on Linux and Windows, but it has <b>never been run end-to-end</b>. Screen capture through WebKitGTK on Wayland — and mic capture of the hidden <i>Peek Remote Audio</i> source — are the known risky bits. Treat the keyboard/mouse path with the same respect you'd give a loaded gun until it's proven.</p>
+        <p>v0.2.1 fixes the first end-to-end failure anyone hit (<code>getDisplayMedia</code> rejecting with <b>Invalid constraint</b> in WebKitGTK — the capture path now falls back gracefully). Screen/mic capture in WebKitGTK and the whole control chain are still being proven in the wild. Friends don't let friends grab the wheel before it's proven — treat the control path accordingly.</p>
       </div>
     </div>
   </section>
