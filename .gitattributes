@@ -1,0 +1,13 @@
+# Large binary type control — kept tight on purpose.
+#
+# Anything tracked here goes through Git LFS: blobs live in the LFS store,
+# the repo commits a pointer, clones only pull the blob when they need it.
+# This is for things too big for sane git history that never need to be
+# served to the website — keep website assets out of here or Pages breaks.
+
+sf2-piano/*.sf2          filter=lfs diff=lfs merge=lfs -text
+*.AppImage               filter=lfs diff=lfs merge=lfs -text
+*.zip                   filter=lfs diff=lfs merge=lfs -text
+*.tar.gz                filter=lfs diff=lfs merge=lfs -text
+*.exe                   filter=lfs diff=lfs merge=lfs -text
+*.msi                   filter=lfs diff=lfs merge=lfs -text
