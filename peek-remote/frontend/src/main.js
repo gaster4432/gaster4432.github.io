@@ -209,18 +209,29 @@ function createPc(s, config) {
       status(s, 'connection interrupted — waiting to reconnect…');
     }
   });
-  pc.addEventListener('track', e => { if (active()) gotRemoteStream(s, e); });
-  pc.addEventListener('datachannel', e => {
-    if (!active()) return;
-    if (e.channel.label !== 'peek-remote-control') return;
-    s.dc = e.channel;
-    e.channel.addEventListener('open', () => {
-      status(s, 'live — waiting for the sharer to arm control…', 'wait');
-      resetControlButton();
+  if (s.role === 'host') {
+    s.stream.getTracks().forEach(t => pc.addTrack(t, s.stream));
+    // One channel, created by the host so it exists in the same offer SDP —
+    // no signaling change needed. Carries control both ways:
+    //   joiner → host: input events + { t: 'grab', on }
+    //   host   → joiner: { t: 'gate', on } — the host's master consent
+    s.dc = pc.createDataChannel('peek-remote-control', { ordered: true });
+    wireHostChannel(s);
+    s.dc.addEventListener('open', () => announceGate(s));
+  } else {
+    pc.addEventListener('track', e => { if (active()) gotRemoteStream(s, e); });
+    pc.addEventListener('datachannel', e => {
+      if (!active()) return;
+      if (e.channel.label !== 'peek-remote-control') return;
+      s.dc = e.channel;
+      e.channel.addEventListener('open', () => {
+        status(s, 'live — waiting for the sharer to arm control…', 'wait');
+        resetControlButton();
+      });
+      e.channel.addEventListener('close', () => { releaseControl(s, { announce: false }); status(s, 'control channel closed', 'wait'); });
+      e.channel.addEventListener('message', e => handleHostGate(s, e));
     });
-    e.channel.addEventListener('close', () => { releaseControl(s, { announce: false }); status(s, 'control channel closed', 'wait'); });
-    e.channel.addEventListener('message', e => handleHostGate(s, e));
-  });
+  }
   return pc;
 }
 function handleHostGate(s, e) {
@@ -237,6 +248,28 @@ function handleHostGate(s, e) {
     status(s, hostAllowed ? 'sharer armed control — take the wheel' : 'waiting for the sharer to arm control…', 'wait');
   }
 }
+function announceGate(s) {
+  invoke('control_state').then(st => {
+    if (!current(s) || !s.dc || s.dc.readyState !== 'open') return;
+    try { s.dc.send(JSON.stringify({ t: 'gate', on: !!(st && st.enabled) })); } catch {}
+  }).catch(() => {});
+}
+function wireHostChannel(s) {
+  const dc = s.dc;
+  dc.addEventListener('message', e => {
+    if (!current(s)) return;
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg && msg.t === 'grab') {
+      hostCtl.grabbed = !!msg.on;
+      renderHostCtl();
+      if (msg.on) playCappy(); else playBlip();
+      return;
+    }
+    // Input events. Rust decides; a disallowed call fails silently by design.
+    invoke('inject', { event: msg }).catch(() => {});
+  });
+}
 async function sendDescription(s, pc, desc) {
   await pc.setLocalDescription(desc);
   if (!current(s) || s.pc !== pc) return;
@@ -245,6 +278,12 @@ async function sendDescription(s, pc, desc) {
   s.localSent = true;
   const candidates = s.outgoingIce.splice(0);
   for (const msg of candidates) await post(s, 'message', msg);
+}
+async function hostOffer(s) {
+  const pc = s.pc;
+  s.stage = 'offer';
+  await sendDescription(s, pc, await pc.createOffer());
+  s.stage = 'waiting';
 }
 async function joinAnswer(s, offer) {
   if (s.offerHandled) return;
@@ -268,16 +307,38 @@ async function flushIce(s, pc) {
 }
 async function handleSignal(s, msg) {
   if (!current(s) || !msg) return;
+  if (msg.t === 'ready' && s.role === 'host') {
+    if (msg.negotiation <= s.negotiation) return;
+    closePc(s);
+    s.negotiation = msg.negotiation;
+    s.ice = []; s.outgoingIce = []; s.localSent = false; s.answerHandled = false;
+    status(s, 'friend is connecting…');
+    createPc(s, s.config);
+    await hostOffer(s);
+    return;
+  }
   if (msg.negotiation !== s.negotiation) return;
   switch (msg.t) {
     case 'offer':
       if (s.role === 'joiner') await joinAnswer(s, msg.data);
       break;
+    case 'answer':
+      if (s.role === 'host' && s.pc && !s.answerHandled) {
+        s.answerHandled = true;
+        await s.pc.setRemoteDescription(msg.data);
+        await flushIce(s, s.pc);
+        await post(s, 'ack');
+      }
+      break;
     case 'ice': await handleCandidate(s, msg.data); break;
-    case 'bye': fail(s, new Error('The host closed the share.')); break;
+    case 'bye':
+      if (s.role === 'host') { closePc(s); status(s, 'friend left — waiting for a new connection'); }
+      else fail(s, new Error('The host closed the share.'));
+      break;
     default: console.warn('Unknown Peek signal:', msg.t);
   }
-}async function signalLoop(s) {
+}
+async function signalLoop(s) {
   while (current(s)) {
     try {
       const d = await request(s, roomPath(s), null, 22000);
@@ -297,6 +358,64 @@ function setAudioChip(on, text) {
   if (!c) return;
   c.textContent = (on ? '🔊 ' : '🔇 ') + text;
   c.className = 'chip chip-audio ' + (on ? 'on' : 'off');
+}
+
+async function captureHiddenMic() {
+  let inputs = await navigator.mediaDevices.enumerateDevices();
+  if (!inputs.some(d => d.kind === 'audioinput' && d.label)) {
+    const p = await navigator.mediaDevices.getUserMedia({ audio: true });
+    p.getTracks().forEach(t => t.stop());
+    inputs = await navigator.mediaDevices.enumerateDevices();
+  }
+  const match = inputs.find(d => d.kind === 'audioinput' && /peek\s*remote/i.test(d.label));
+  if (!match) throw new Error('hidden "Peek Remote Audio" source not visible to the page');
+  return navigator.mediaDevices.getUserMedia({
+    video: false,
+    audio: {
+      deviceId: { exact: match.deviceId },
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+    },
+  });
+}
+
+async function attachHostAudio(s) {
+  // Normal way: the native app loaded our hidden source (Linux).
+  try {
+    const res = await invoke('audio_setup');
+    if (!res.ok) throw new Error(res.reason || 'audio helper unavailable');
+    const stream = await captureHiddenMic();
+    const track = stream.getAudioTracks()[0];
+    if (!track) throw new Error('hidden device produced no audio track');
+    s.audioStream = stream;
+    s.stream.addTrack(track);
+    setAudioChip(true, 'desktop audio — hidden device');
+    return;
+  } catch (e) {
+    console.warn('[peek-remote] hidden-device audio failed:', e && e.message ? e.message : e);
+  }
+  // Fallback: browser display-audio (best effort, Windows/WebView2).
+  try {
+    const attempts = [
+      { video: false, audio: true },
+      { audio: true },
+      { video: false },
+    ];
+    let lastErr = null, st = null;
+    for (const constraints of attempts) {
+      try { st = await navigator.mediaDevices.getDisplayMedia(constraints); break; }
+      catch (e) { lastErr = e; st = null; }
+    }
+    if (!st) throw (lastErr || new Error('display audio unavailable'));
+    const track = st.getAudioTracks()[0];
+    if (!track) throw new Error('display capture produced no audio track');
+    s.fallbackAudioStream = st;
+    s.stream.addTrack(track);
+    setAudioChip(true, 'desktop audio — display capture');
+    return;
+  } catch (e) {
+    console.warn('[peek-remote] display-audio fallback failed:', e && e.message ? e.message : e);
+  }
+  setAudioChip(false, 'video only — no audio path');
 }
 
 const hostCtl = { gate: false, grabbed: false };
@@ -330,17 +449,67 @@ async function beginHost() {
   show('hostView');
   $('codeOut').textContent = '······';
   setHostControlUI(false);
-  setAudioChip(false, 'video only — native pipeline');
-  status(s, 'asking the portal and the server for a code…');
+  setAudioChip(false, 'audio pending…');
+  let native = false;
+  try { native = !!(await invoke('native_share_supported')); } catch { native = false; }
+  if (native) {
+    $('previewVideo').classList.add('hidden');
+    $('nativePreview').classList.remove('hidden');
+    setAudioChip(false, 'video only — native pipeline');
+    status(s, 'asking the portal and the server for a code…');
+    try {
+      const res = await invoke('start_native_share', { mode: 'portal' });
+      if (!current(s)) return;
+      s.code = (res && res.code) || '';
+      $('codeOut').textContent = s.code;
+      status(s, 'waiting for your friend…');
+      attachNativeEvents(s);
+    } catch (e) {
+      fail(s, e);
+    } finally {
+      hostStarting = false;
+    }
+    return;
+  }
+  // Browser host path (Windows / macOS). getDisplayMedia is called from the
+  // click handler's synchronous body — WebKit/WebView2 demands that.
+  $('nativePreview').classList.add('hidden');
+  $('previewVideo').classList.remove('hidden');
+  status(s, 'pick a screen to share…');
+  let mediaPromise;
   try {
-    const res = await invoke('start_native_share', { mode: 'portal' });
-    if (!current(s)) return;
-    s.code = (res && res.code) || '';
-    $('codeOut').textContent = s.code;
-    status(s, 'waiting for your friend…');
-    attachNativeEvents(s);
+    mediaPromise = navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
   } catch (e) {
     fail(s, e);
+    hostStarting = false;
+    return;
+  }
+  mediaPromise.then(
+    stream => finishHostStart(s, stream),
+    e => { fail(s, e); hostStarting = false; },
+  );
+}
+async function finishHostStart(s, stream) {
+  try {
+    s.stream = stream;
+    s.stream.getVideoTracks()[0].addEventListener('ended', () => { if (current(s)) teardown(); });
+    await attachHostAudio(s);
+    if (!current(s)) return;
+    $('previewVideo').srcObject = s.stream;
+    status(s, 'asking the server for a code…');
+    s.config = await prepare(s);
+    const created = await request(s, `/room/create?role=host&sid=${mySid}`, {});
+    if (!current(s)) return;
+    s.code = created.code;
+    s.negotiation = created.negotiation;
+    $('codeOut').textContent = s.code;
+    createPc(s, s.config);
+    await hostOffer(s);
+    status(s, 'waiting for your friend…');
+    signalLoop(s);
+  } catch (e) {
+    if (e.name === 'NotAllowedError') fail(s, new Error('Screen pick cancelled.'));
+    else fail(s, e);
   } finally {
     hostStarting = false;
   }
@@ -488,9 +657,12 @@ $('controlBtn').onclick = async () => {
     const on = result && result.enabled === true;
     hostCtl.grabbed = false; // (dis)arming always drops any grab
     setHostControlUI(on);
-    // The gate announcement to the friend rides the native channel —
-    // Rust owns it, so JS does not forward anything itself.
+    // Native host path: announce over the Rust-owned channel (set_control
+    // does it). Browser host path: the channel is JS's own — announce here.
     const s = session;
+    if (s && s.dc && s.dc.readyState === 'open') {
+      try { s.dc.send(JSON.stringify({ t: 'gate', on })); } catch {}
+    }
     if (s && s.role === 'host') {
       status(s, on ? 'control armed — waiting for friend to take it' : 'control released', on ? 'live' : 'wait');
     }

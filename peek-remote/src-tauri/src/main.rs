@@ -51,6 +51,14 @@ fn control_state() -> ControlState {
 }
 
 #[tauri::command]
+fn native_share_supported() -> bool {
+  // The GStreamer/portal host is Linux-only (cfg'd target); Windows and
+  // macOS use the browser WebRTC host path instead (WebKitGTK on Windows
+  // is WebView2 and supports getDisplayMedia fine).
+  cfg!(target_os = "linux")
+}
+
+#[tauri::command]
 fn inject(event: InjectEvent) -> Result<(), String> {
   if !gate::is_open() {
     return Err("control is not allowed on this machine".into());
@@ -139,6 +147,7 @@ fn main() {
       start_native_share,
       stop_native_share,
       native_share_state,
+      native_share_supported,
     ])
     .run(tauri::generate_context!())
     .expect("error while running Peek Remote");
