@@ -1,6 +1,6 @@
 {
   "name": "peek-remote",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Peek Remote — screen share + remote control over the same Peek v4 signaling mailbox",
   "private": true,
   "scripts": {
