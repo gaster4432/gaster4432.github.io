@@ -359,8 +359,9 @@ function adoptSession(d) {
   writeSessionId(sessionId);
   closeOverlay('authModal');
   renderAuth();
-  // Fresh sign-in is also the moment an empty account gets its backup.
-  cloudSyncOnBoot().catch(() => {});
+  // Chats live in the cloud now — pull this account's down on sign-in.
+  cloudChats = [];
+  loadCloudChats().catch(() => {});
 }
 
 async function signOut() {
@@ -368,11 +369,14 @@ async function signOut() {
   sessionId = '';
   me = null;
   personaReserveTokens = 0;
-  dirtyChats.clear();
+  cloudChats = [];
+  localChats = null;
   writeSessionId('');
   clearCredentials();
   closeOverlay('authModal');
   renderAuth();
+  renderSidebar();
+  renderHistoryPanel();
 }
 
 /**
@@ -1031,16 +1035,27 @@ function toast(message, ms = 4500) {
 
 /* ─── Chat store ─── */
 
-// Every chat lives in localStorage. The worker keeps no copy, so this is
-// the only place a conversation survives a reload.
+// Signed in, the cloud is the only chat store: loadData() returns the
+// in-memory copy fetched from the worker, and nothing is written to
+// localStorage. Signed out there is no account to save to, so guests keep
+// using localStorage exactly as before.
+
+let cloudChats = [];
+let localChats = null;
 
 function loadData() {
-  let stored = loadJSON('pkax_chats', null);
-  if (stored === null) stored = loadJSON('cf_chat_chats', []);
-  return Array.isArray(stored) ? stored : [];
+  if (sessionId) return cloudChats;
+  if (!localChats) {
+    let stored = loadJSON('pkax_chats', null);
+    if (stored === null) stored = loadJSON('cf_chat_chats', []);
+    localChats = Array.isArray(stored) ? stored : [];
+  }
+  return localChats;
 }
 
 function saveData(chats) {
+  if (sessionId) { cloudChats = chats; return true; } // cloud only — upsertChat pushes the change
+  localChats = chats;
   // Storage may be full. The conversation itself matters far more than the
   // archive of old regenerations, so shed the oldest versions and try
   // again rather than losing the whole chat.
@@ -1095,15 +1110,13 @@ function upsertChat(chat) {
   if (idx >= 0) chats[idx] = chat;
   else chats.unshift(chat);
   saveData(chats);
+  pushChatToCloud(chat);
 }
 
 function deleteChat(chatId) {
   const chats = loadData().filter(c => c.id !== chatId);
   saveData(chats);
-  // Fire-and-forget: without this the row would survive in the cloud and
-  // resurrect on the next boot's merge.
-  if (sessionId) api('/api/chats?id=' + encodeURIComponent(chatId), { method: 'DELETE' });
-  dirtyChats.delete(chatId);
+  if (sessionId) api('/api/chats?id=' + encodeURIComponent(chatId), { method: 'DELETE' }).catch(() => {});
 }
 
 function getChatsForChar(charKey) {
@@ -1117,14 +1130,12 @@ function getMostRecentChat(charKey) {
   return chats.length > 0 ? chats[0] : null;
 }
 
-/* ─── Cloud chat backup ───
- * Signed-in accounts keep a copy of every chat in the worker's D1. On boot
- * (and right after sign-in) the cloud copy is fetched: if the account has
- * none, every local chat is pushed up — that is the automatic backup. If it
- * has some, newer-wins per chat id, in both directions. Guests are skipped.
+/* ─── Cloud chats ───
+ * Signed-in accounts keep their chats in the worker's D1. There is no
+ * background merge: the list is fetched on sign-in, and every save pushes
+ * straight to the cloud. Guests have no account, so they stay on
+ * localStorage (see loadData/saveData).
  */
-let cloudBusy = false;
-const dirtyChats = new Set();
 
 /** Versions are the only part of a chat that can balloon — drop them if large. */
 function slimChatForCloud(chat) {
@@ -1138,87 +1149,26 @@ function slimChatForCloud(chat) {
   };
 }
 
-async function cloudGetChats() {
+/** Fetch the account's chats and refresh the lists that show them. */
+async function loadCloudChats() {
+  if (!sessionId) {
+    cloudChats = [];
+    return;
+  }
   const r = await api('/api/chats');
-  return r.ok && Array.isArray(r.data.chats) ? r.data.chats : null;
+  cloudChats = r.ok && Array.isArray(r.data.chats) ? r.data.chats : [];
+  renderSidebar();
+  renderHistoryPanel();
 }
 
-async function cloudPushChats(chats) {
-  if (!sessionId || !chats.length) return false;
-  const out = chats
-    .filter(c => c && c.id && Array.isArray(c.messages))
-    .map(slimChatForCloud);
-  for (let i = 0; i < out.length; i += 40) {
-    const r = await api('/api/chats', {
-      method: 'POST',
-      body: JSON.stringify({ chats: out.slice(i, i + 40) }),
-    });
-    if (!r.ok) return false;
-  }
-  return true;
-}
-
-/** Debounced: chatting saves constantly, the cloud does not need to hear
- *  about every one of them. */
-function scheduleCloudSync(chatId) {
-  if (!sessionId || !chatId) return;
-  dirtyChats.add(chatId);
-  clearTimeout(scheduleCloudSync._t);
-  scheduleCloudSync._t = setTimeout(flushCloudSync, 3000);
-}
-
-async function flushCloudSync() {
-  if (cloudBusy || !sessionId || !dirtyChats.size) return;
-  cloudBusy = true;
-  const ids = Array.from(dirtyChats);
-  dirtyChats.clear();
-  const chats = loadData().filter(c => ids.includes(c.id));
-  await cloudPushChats(chats).catch(() => {});
-  cloudBusy = false;
-  if (dirtyChats.size) flushCloudSync();
-}
-
-async function cloudSyncOnBoot() {
-  if (!sessionId) return;
-  const cloud = await cloudGetChats();
-  if (!cloud) return; // request failed — try again next boot
-
-  const local = loadData();
-  const localById = new Map(local.map(c => [c.id, c]));
-  const cloudById = new Map(cloud.map(c => [c.id, c]));
-  const merged = local.slice();
-  let localChanged = false;
-  let openChatReplaced = false;
-
-  for (const cc of cloud) {
-    const lc = localById.get(cc.id);
-    if (!lc) {
-      merged.push(cc);
-      localChanged = true;
-      if (cc.id === currentChatId) openChatReplaced = true;
-    } else if (String(cc.updated_at || '') > String(lc.updated_at || '')) {
-      merged[merged.indexOf(lc)] = cc;
-      localChanged = true;
-      if (cc.id === currentChatId) openChatReplaced = true;
-    }
-  }
-  if (localChanged) saveData(merged);
-
-  // Push whatever the cloud is missing or lagging on — when the account has
-  // no cloud chats at all, this is the "back up everything" moment.
-  const toPush = merged.filter(c => {
-    const cc = cloudById.get(c.id);
-    return !cc || String(c.updated_at || '') > String(cc.updated_at || '');
-  });
-  if (toPush.length) await cloudPushChats(toPush).catch(() => {});
-
-  if (localChanged) {
-    renderSidebar();
-    renderCharGrid();
-    renderHistoryPanel();
-    // The open chat was superseded by its cloud copy — reload it in place.
-    if (openChatReplaced && !sending && currentChatId) loadChatById(currentChatId);
-  }
+/** Save one chat to the cloud. Fire-and-forget: the in-memory list is already
+ *  updated, and the worker rejects an older save landing over a newer one. */
+function pushChatToCloud(chat) {
+  if (!sessionId || !chat || !chat.id || !Array.isArray(chat.messages)) return;
+  api('/api/chats', {
+    method: 'POST',
+    body: JSON.stringify({ chats: [slimChatForCloud(chat)] }),
+  }).catch(() => {});
 }
 
 function initCharacters() {
@@ -2171,7 +2121,6 @@ function saveCurrentChat() {
     messages,
     updated_at: new Date().toISOString(),
   });
-  scheduleCloudSync(currentChatId);
 }
 
 /* ─── Branch ───
@@ -2306,10 +2255,8 @@ function loadChatById(chatId) {
     // on read — even when the session above was valid and never looked at it.
     savedCredentials().catch(() => {});
 
-    // Backup/merge runs in the background — it must not hold the UI hostage.
-    cloudSyncOnBoot().catch(() => {});
-
-    // Never reopen the last chat on load — land on Discover instead.
+    // Pull this account's chats down, then land on Discover.
+    loadCloudChats().catch(() => {});
     showDiscover();
   } catch (e) {
     console.error('[pkax] boot failed:', e);
