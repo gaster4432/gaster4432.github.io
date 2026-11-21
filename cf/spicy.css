@@ -357,6 +357,26 @@ body {
 
 .field-hint { font-size: 11.5px; color: var(--sp-faint); line-height: 1.5; }
 
+/* ── Import drop zone ── */
+.import-drop {
+  border: 1px dashed var(--sp-line);
+  border-radius: 12px;
+  padding: 18px;
+  text-align: center;
+  color: var(--sp-faint);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.import-drop:hover,
+.import-drop.dragover {
+  border-color: var(--sp-accent);
+  background: rgba(76, 141, 255, 0.08);
+  color: var(--sp-text);
+}
+.import-drop-icon { font-size: 22px; margin-bottom: 4px; }
+.import-browse { color: var(--sp-accent); text-decoration: underline; cursor: pointer; }
+
 /* ── Avatar picker ── */
 .avatar-picker {
   display: flex;

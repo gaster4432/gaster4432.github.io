@@ -318,7 +318,7 @@ function closeOverlay(id) {
 }
 
 function closeAllOverlays() {
-  ['authModal', 'personaModal', 'charModal'].forEach(closeOverlay);
+  ['authModal', 'personaModal', 'charModal', 'importModal'].forEach(closeOverlay);
 }
 
 /* --- profile card --- */
@@ -690,6 +690,171 @@ async function submitCharacter() {
   }
 }
 
+/* ─── Character import ───
+ * Cards are parsed by import.js (window.PKAXImport). A signed-in import is
+ * published through the same POST /api/characters the creator uses; if that
+ * is skipped, rate-limited or signed out, the card is kept in localStorage.
+ */
+
+function genCharId() {
+  return 'imp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function saveLocalCharacter(card) {
+  let custom = loadJSON('pkax_custom_chars', null);
+  if (!custom || typeof custom !== 'object') custom = loadJSON('cf_chat_custom_chars', {});
+  if (!custom || typeof custom !== 'object') custom = {};
+
+  const id = genCharId();
+  const record = {
+    name: card.name,
+    greeting: card.greeting || '',
+    systemPrompt: card.systemPrompt || '',
+    avatar: card.avatar || '',
+    alternateGreetings: card.alternateGreetings || [],
+    creatorNotes: card.creatorNotes || '',
+    tags: card.tags || [],
+    creator: card.creator || '',
+    characterVersion: card.characterVersion || '',
+    source: card.source || '',
+    lorebook: card.lorebook || null,
+    imported: true,
+    local: true
+  };
+  custom[id] = record;
+  try {
+    localStorage.setItem('pkax_custom_chars', JSON.stringify(custom));
+  } catch (e) {
+    console.error('[pkax] could not save the imported character:', e);
+    toast('Could not save locally — browser storage is full or blocked.');
+  }
+  characters[id] = record;
+  return id;
+}
+
+function afterAddImported(id) {
+  renderCharGrid();
+  renderSidebar();
+  renderHistoryPanel();
+  selectCharacter(id);
+}
+
+async function addImportedCharacter(card, publish) {
+  if (!card || !card.name) throw new Error('That card has no name.');
+
+  if (publish && me) {
+    const r = await api('/api/characters', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: card.name,
+        greeting: card.greeting || '',
+        systemPrompt: card.systemPrompt || '',
+        avatar: card.avatar || ''
+      })
+    });
+
+    if (r.ok && r.data && r.data.character) {
+      const c = r.data.character;
+      characters[c.id] = {
+        name: c.name,
+        greeting: c.greeting || '',
+        systemPrompt: c.systemPrompt || '',
+        avatar: c.avatar || '',
+        alternateGreetings: card.alternateGreetings || [],
+        creatorNotes: card.creatorNotes || '',
+        tags: card.tags || [],
+        creator: card.creator || '',
+        source: card.source || '',
+        lorebook: card.lorebook || null,
+        remote: true,
+        imported: true
+      };
+      afterAddImported(c.id);
+      toast('Imported "' + c.name + '" and published it.');
+      return;
+    }
+
+    const reason = (r.data && r.data.error) || 'could not publish';
+    toast('Could not publish (' + reason + ') — saved locally instead.');
+  }
+
+  const id = saveLocalCharacter(card);
+  afterAddImported(id);
+
+  if (publish && !me) {
+    toast('Imported "' + card.name + '" — sign in to publish imports.');
+  } else {
+    toast('Imported "' + card.name + '".');
+  }
+}
+
+function openImportModal() {
+  $('importStatus').textContent = '';
+  $('importUrl').value = '';
+  $('importFile').value = '';
+  $('importPublish').checked = !!me;
+  $('importPublish').disabled = !me;
+  openOverlay('importModal');
+  $('importUrl').focus();
+}
+
+async function runImport(work) {
+  const status = $('importStatus');
+  const btn = $('importGoBtn');
+  status.textContent = 'Importing…';
+  btn.disabled = true;
+  try {
+    const card = await work();
+    await addImportedCharacter(card, $('importPublish').checked);
+    closeOverlay('importModal');
+  } catch (e) {
+    status.textContent = (e && e.message) || 'Import failed.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function importFromLink() {
+  const url = $('importUrl').value.trim();
+  if (!url) { $('importStatus').textContent = 'Paste a link first.'; return; }
+  runImport(() => window.PKAXImport.resolveUrl(url));
+}
+
+function importFromFile() {
+  const input = $('importFile');
+  const file = input.files && input.files[0];
+  if (!file) { $('importStatus').textContent = 'Choose a card file first.'; return; }
+  runImport(() => window.PKAXImport.resolveFile(file));
+}
+
+function importFromDrop(e) {
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) { $('importStatus').textContent = 'Drop a .png or .json card.'; return; }
+  runImport(() => window.PKAXImport.resolveFile(file));
+}
+
+function bindImportUI() {
+  const drop = $('importDrop');
+  $('importBtn').onclick = openImportModal;
+  $('closeImportBtn').onclick = () => closeOverlay('importModal');
+  $('importCancelBtn').onclick = () => closeOverlay('importModal');
+  $('importGoBtn').onclick = importFromLink;
+  $('importUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') importFromLink(); });
+  $('importFile').onchange = importFromFile;
+  if (drop) {
+    drop.onclick = (e) => { if (e.target.tagName !== 'INPUT') $('importFile').click(); };
+    ['dragover', 'dragenter'].forEach((ev) => drop.addEventListener(ev, (e) => {
+      e.preventDefault();
+      drop.classList.add('dragover');
+    }));
+    ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => {
+      e.preventDefault();
+      drop.classList.remove('dragover');
+    }));
+    drop.addEventListener('drop', importFromDrop);
+  }
+}
+
 function bindAuthUI() {
   $('profileCard').onclick = openAccountModal;
   $('closeAuthBtn').onclick = () => closeOverlay('authModal');
@@ -761,6 +926,8 @@ function bindAuthUI() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeAllOverlays();
   });
+
+  bindImportUI();
 }
 
 function openCharModal() {

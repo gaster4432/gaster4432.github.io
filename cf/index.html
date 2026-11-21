@@ -44,11 +44,15 @@
       <div class="sidebar-footer">
         <button class="btn-sidebar-action" id="newChatBtn">
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          New Chat
+          <span>New Chat</span>
         </button>
         <button class="btn-sidebar-action" id="historyBtn">
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          History
+          <span>History</span>
+        </button>
+        <button class="btn-sidebar-action" id="importBtn" title="Import a character card from a link or file">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span>Import</span>
         </button>
       </div>
       <button type="button" class="profile-card" id="profileCard" aria-haspopup="dialog">
@@ -277,10 +281,40 @@
       <button type="button" id="charSubmit" class="btn-primary auth-submit">Create character</button>
     </div>
   </div>
+
+  <!-- IMPORT CHARACTER -->
+  <div id="importModal" class="modal-overlay hidden">
+    <div class="modal modal-lg" role="dialog" aria-modal="true" aria-labelledby="importTitle">
+      <button type="button" class="modal-close" id="closeImportBtn" aria-label="Close">&times;</button>
+      <div class="modal-head">
+        <h2 id="importTitle">Import a Character</h2>
+        <p class="modal-sub">Paste a Chub / CharacterHub link, a direct card URL, or drop a SillyTavern card (.png / .json).</p>
+      </div>
+      <label class="auth-row auth-row-stack">
+        <span>Character link or card URL</span>
+        <input id="importUrl" type="url" spellcheck="false" placeholder="https://chub.ai/characters/...">
+      </label>
+      <div class="import-drop" id="importDrop">
+        <div class="import-drop-icon" aria-hidden="true">⬆</div>
+        <div>Drop a card here, or <label class="import-browse" for="importFile">browse</label></div>
+        <input type="file" id="importFile" accept=".png,.json,image/png,application/json" hidden>
+      </div>
+      <label class="auth-remember">
+        <input type="checkbox" id="importPublish" checked>
+        <span>Publish to the shared character list (needs an account)</span>
+      </label>
+      <p id="importStatus" class="auth-status" role="status" aria-live="polite"></p>
+      <div class="auth-confirm-row">
+        <button type="button" id="importCancelBtn" class="btn-ghost btn-sm">Cancel</button>
+        <button type="button" id="importGoBtn" class="btn-primary btn-sm">Import</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="characters.js"></script>
 <script src="passwords.js"></script>
+<script src="import.js"></script>
 <script src="app.js"></script>
 <script>
 (function() {
