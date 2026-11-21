@@ -1084,62 +1084,6 @@ function shedVersions(chats) {
   return dropped > 0;
 }
 
-// Which character and chat were open. Without this the chats were still on
-// disk but the app always came back to an empty panel, which looked exactly
-// like nothing had been saved.
-const ACTIVE_KEY = 'pkax_active';
-
-function loadActive() {
-  try {
-    const raw = localStorage.getItem(ACTIVE_KEY);
-    if (!raw) return null;
-    const v = JSON.parse(raw);
-    return v && typeof v === 'object' ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveActive() {
-  try {
-    localStorage.setItem(ACTIVE_KEY, JSON.stringify({
-      c: currentChar || '',
-      i: currentChatId || '',
-    }));
-  } catch (e) {
-    console.error('[pkax] could not record the open chat:', e);
-  }
-}
-
-/** Reopen whatever was on screen before the reload. */
-function restoreActiveChat() {
-  const active = loadActive();
-
-  if (active) {
-    // The exact chat that was open.
-    if (active.i) {
-      const chat = loadChat(active.i);
-      if (chat && characters[chat.character]) {
-        loadChatById(chat.id);
-        return;
-      }
-    }
-    // Otherwise the character on its own, which reopens its newest chat.
-    if (active.c && characters[active.c]) {
-      selectCharacter(active.c);
-      return;
-    }
-  }
-
-  // Nothing recorded — fall back to the newest chat on this device.
-  const chats = loadData()
-    .slice()
-    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-  if (chats.length && characters[chats[0].character]) {
-    selectCharacter(chats[0].character);
-  }
-}
-
 function loadChat(chatId) {
   const chats = loadData();
   return chats.find(c => c.id === chatId) || null;
@@ -1343,14 +1287,9 @@ characterSearch.addEventListener('input', renderCharGrid);
 
 function selectCharacter(key) {
   currentChar = key;
-  const recent = getMostRecentChat(key);
-  if (recent) {
-    loadChatById(recent.id);
-    saveActive();
-    return;
-  }
+  // Never reopen a saved chat here. Picking a character always starts a new
+  // conversation; old ones stay reachable through History.
   showFreshChat();
-  saveActive();
   renderSidebar();
   renderCharGrid();
   renderHistoryPanel();
@@ -2078,7 +2017,6 @@ function deleteMessage(id) {
     saveCurrentChat();
   }
 
-  saveActive();
   renderSidebar();
   renderCharGrid();
   renderHistoryPanel();
@@ -2233,7 +2171,6 @@ function saveCurrentChat() {
     messages,
     updated_at: new Date().toISOString(),
   });
-  saveActive();
   scheduleCloudSync(currentChatId);
 }
 
@@ -2275,7 +2212,6 @@ resetBtn.onclick = () => {
   }
   // Start a truly fresh chat — don't auto-load the next recent chat
   showFreshChat();
-  saveActive();
   renderSidebar();
   renderCharGrid();
   renderHistoryPanel();
@@ -2284,7 +2220,6 @@ resetBtn.onclick = () => {
 $('newChatBtn').onclick = () => {
   if (!currentChar || !characters[currentChar]) return;
   showFreshChat();
-  saveActive();
   renderSidebar();
   renderCharGrid();
   renderHistoryPanel();
@@ -2374,8 +2309,8 @@ function loadChatById(chatId) {
     // Backup/merge runs in the background — it must not hold the UI hostage.
     cloudSyncOnBoot().catch(() => {});
 
-    // Reopen the chat that was on screen before the reload.
-    restoreActiveChat();
+    // Never reopen the last chat on load — land on Discover instead.
+    showDiscover();
   } catch (e) {
     console.error('[pkax] boot failed:', e);
   }
@@ -2384,3 +2319,9 @@ function loadChatById(chatId) {
 // Top nav: Chats opens history, Discover returns to the all-characters grid
 if ($('spNavChats')) $('spNavChats').onclick = () => { renderHistoryPanel(); $('historyArea').classList.remove('hidden'); };
 if ($('spNavDiscover')) $('spNavDiscover').onclick = () => showDiscover();
+
+// Coming back through the back/forward cache must not resurrect the old
+// conversation either — a return is a fresh start.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) showDiscover();
+});
