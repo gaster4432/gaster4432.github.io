@@ -205,6 +205,7 @@ body.hosting { padding-bottom: 130px; }
     </div>
     <div class="actions"><button class="btn primary" id="joinBtn">Join</button><button class="btn" id="joinBack">Back</button></div>
     <div style="margin-top:14px"><span class="status" id="joinStatus" role="status" hidden><span class="dot"></span><span id="joinStatusText"></span></span></div>
+    <div style="margin-top:8px"><span class="status" id="joinPanelVoiceStatus" role="status" hidden><span class="dot"></span><span id="joinPanelVoiceStatusText"></span></span></div>
     <p class="hint">The host has to keep their tab open. If it says no room, check the code — they may have stopped sharing.</p>
   </div>
   <div class="vid-wrap" id="vidWrap">
@@ -458,16 +459,27 @@ function setMuted(s, muted) {
   btn.hidden = false;
   btn.textContent = muted ? '🔇 Unmute mic' : '🎤 Mute mic';
 }
-function stopVoice(s) {
-  if (!s.voiceEnabled && !s.wires.voice.pc) return;
-  s.chatStream?.getTracks().forEach(t => t.stop());
-  s.chatStream = null;
-  s.voiceEnabled = false;
+/* Pause voice for the current negotiation. The mic stream is deliberately
+ * kept: when a viewer without voice leaves, the next viewer may have it on
+ * and the host must be able to offer voice again without re-prompting. */
+function suspendVoice(s) {
   closePc(s, 'voice');
   const w = s.wires.voice;
   w.ice = []; w.outgoingIce = []; w.localSent = false;
+  w.remote = new MediaStream();
+  voiceAudio.srcObject = null;
+  voicePlayBtn(s).hidden = true;
   $('hostMuteBtn').hidden = true;
   $('joinMuteBtn').hidden = true;
+  s.voicePeerOff = true;
+  s.voiceLive = false;
+}
+function stopVoice(s) {
+  if (!s.voiceEnabled && !s.wires.voice.pc) return;
+  suspendVoice(s);
+  s.chatStream?.getTracks().forEach(t => t.stop());
+  s.chatStream = null;
+  s.voiceEnabled = false;
   voiceStatus(s, 'Voice chat off.');
 }
 function voicePlayBtn(s) { return $(s.role === 'host' ? 'hostVoicePlayBtn' : 'joinVoicePlayBtn'); }
@@ -510,6 +522,9 @@ function voiceStatus(s, text, cls = 'wait') {
   if (!current(s)) return;
   const prefix = s.role === 'host' ? 'host' : 'join';
   setStatus($(prefix + 'VoiceStatus'), $(prefix + 'VoiceStatusText'), text, cls);
+  // The joiner's in-call badge is inside #vidWrap (hidden until video arrives),
+  // so mirror voice status into the join panel as well.
+  if (s.role === 'joiner') setStatus($('joinPanelVoiceStatus'), $('joinPanelVoiceStatusText'), text, cls);
 }
 function newWire() {
   return { pc: null, ice: [], outgoingIce: [], localSent: false, remote: new MediaStream() };
@@ -518,6 +533,7 @@ function newSession(role, code) {
   return { role, code, attempt: genSid(), negotiation: 0, controller: new AbortController(),
     stream: null, audioStream: null, chatStream: null,
     voiceEnabled: false, chatLabel: '', chatMuted: false,
+    voiceFailed: false, voicePeerOff: false, voiceLive: false,
     wires: { screen: newWire(), voice: newWire() },
     localSent: false, offerHandled: false, answerHandled: false, stage: 'signaling', timer: null };
 }
@@ -583,7 +599,7 @@ function dispose(s, notify = true) {
   s.stream = s.audioStream = s.chatStream = null;
   voiceAudio.srcObject = null;
   for (const id of ['hostVoicePlayBtn', 'joinVoicePlayBtn', 'hostMuteBtn', 'joinMuteBtn',
-    'hostVoiceStatus', 'joinVoiceStatus']) $(id).hidden = true;
+    'hostVoiceStatus', 'joinVoiceStatus', 'joinPanelVoiceStatus']) $(id).hidden = true;
 }
 function fail(s, error) {
   if (!current(s)) return;
@@ -633,9 +649,10 @@ function createPc(s, config, wire) {
           $('vidWrap').classList.add('show');
           $('retryBtn').disabled = false;
         }
-        if (s.voiceEnabled) voiceStatus(s, 'voice connecting…');
-      } else if (voiceAudio.srcObject) {
-        voiceStatus(s, 'LIVE — you can hear each other', 'live');
+        if (s.voiceEnabled && !s.voiceLive) voiceStatus(s, 'voice connecting…');
+      } else {
+        s.voiceLive = true;
+        voiceStatus(s, voiceAudio.srcObject ? 'LIVE — you can hear each other' : 'voice connected', 'live');
         setMuted(s, s.chatMuted);
       }
     } else if (pc.connectionState === 'failed') {
@@ -656,9 +673,9 @@ function createPc(s, config, wire) {
 }
 function createPcs(s) {
   createPc(s, s.config, 'screen');
-  if (s.voiceEnabled && s.chatStream) {
+  if (s.voiceEnabled && s.chatStream && !s.voicePeerOff) {
     try { createPc(s, s.config, 'voice'); }
-    catch (e) { console.warn('Peek voice PC failed:', e); stopVoice(s); }
+    catch (e) { console.warn('Peek voice PC failed:', e); suspendVoice(s); }
   }
 }
 async function localDescription(pc, kind) {
@@ -680,7 +697,7 @@ async function hostOffer(s) {
   let voiceDesc = null;
   if (s.wires.voice.pc) {
     try { voiceDesc = await localDescription(s.wires.voice.pc, 'offer'); }
-    catch (e) { console.warn('Peek voice offer failed:', e); stopVoice(s); }
+    catch (e) { console.warn('Peek voice offer failed:', e); suspendVoice(s); }
   }
   const data = { screen: await localDescription(s.wires.screen.pc, 'offer') };
   if (voiceDesc) data.voice = voiceDesc;
@@ -692,24 +709,25 @@ async function joinAnswer(s, offer) {
   s.offerHandled = true;
   s.stage = 'answer';
   const screenPc = createPc(s, s.config, 'screen');
-  await screenPc.setRemoteDescription(offer.data.screen);
+  await screenPc.setRemoteDescription(offer.screen);
   await flushIce(s, 'screen', screenPc);
   let voicePc = null;
-  if (offer.data.voice && s.voiceEnabled && s.chatStream) {
+  if (offer.voice && s.voiceEnabled && s.chatStream) {
     try {
       voicePc = createPc(s, s.config, 'voice');
-      await voicePc.setRemoteDescription(offer.data.voice);
+      await voicePc.setRemoteDescription(offer.voice);
       await flushIce(s, 'voice', voicePc);
     } catch (e) {
       console.warn('Peek voice answer failed:', e);
       voicePc = null;
-      stopVoice(s);
+      s.voiceFailed = true;
+      suspendVoice(s);
     }
   }
   if (s.voiceEnabled && !voicePc) {
-    stopVoice(s);
-    voiceStatus(s, offer.data.voice ? 'Could not start voice chat.' : 'Host did not enable voice chat.');
-  } else if (offer.data.voice && !s.voiceEnabled && s.voiceFailed) {
+    suspendVoice(s);
+    voiceStatus(s, offer.voice ? 'Could not start voice chat.' : 'Host did not enable voice chat.');
+  } else if (offer.voice && s.voiceFailed) {
     voiceStatus(s, 'Voice chat unavailable — check mic permission.', 'bad');
   }
   const data = { screen: await localDescription(screenPc, 'answer') };
@@ -740,9 +758,13 @@ async function handleSignal(s, msg) {
     for (const wire of WIRES) {
       const w = s.wires[wire];
       w.ice = []; w.outgoingIce = []; w.localSent = false;
+      if (wire === 'voice') w.remote = new MediaStream();
     }
     s.answerHandled = false;
+    s.voicePeerOff = false;
+    s.voiceLive = false;
     status(s, 'friend is connecting…');
+    if (s.voiceEnabled) voiceStatus(s, 'waiting for your friend…');
     createPcs(s);
     await hostOffer(s);
     return;
@@ -763,7 +785,7 @@ async function handleSignal(s, msg) {
           await voicePc.setRemoteDescription(msg.data.voice);
           await flushIce(s, 'voice', voicePc);
         } else if (s.voiceEnabled && !msg.data.voice) {
-          stopVoice(s);
+          suspendVoice(s);
           voiceStatus(s, 'Friend did not enable voice chat.');
         }
         await post(s, 'ack');
@@ -772,8 +794,10 @@ async function handleSignal(s, msg) {
     case 'ice': await handleCandidate(s, msg); break;
     case 'bye':
       if (s.role === 'host') {
+        suspendVoice(s);
         for (const wire of WIRES) closePc(s, wire);
         status(s, 'friend left — waiting for a new connection');
+        if (s.voiceEnabled) voiceStatus(s, 'waiting for a new friend…');
       } else fail(s, new Error('The host closed the share.'));
       break;
     default: console.warn('Unknown Peek signal:', msg.t);
@@ -817,6 +841,7 @@ async function startHost() {
     await attachChatAudio(s);
     if (!current(s)) return;
     if (s.voiceEnabled) voiceStatus(s, 'waiting for your friend…');
+    else if ($('voiceChat').checked) voiceStatus(s, 'Voice chat unavailable — pick a mic or allow mic access.', 'bad');
     $('previewVideo').srcObject = s.stream;
     $('previewBox').classList.add('show');
     status(s, 'asking the server for a code…');
@@ -848,6 +873,7 @@ async function startJoin() {
   $('playBtn').hidden = true;
   voicePlayBtn(s).hidden = true;
   $('joinVoiceStatus').hidden = true;
+  $('joinPanelVoiceStatus').hidden = true;
   show('joinView');
   $('joinBtn').disabled = true;
   $('retryBtn').disabled = true;
@@ -856,6 +882,7 @@ async function startJoin() {
   await attachChatAudio(s); // mic ready before the offer arrives
   if (!current(s)) return;
   if (s.voiceEnabled) voiceStatus(s, 'waiting for the host…');
+  else if ($('joinVoiceChat').checked) voiceStatus(s, 'Voice chat unavailable — pick a mic or allow mic access.', 'bad');
   try {
     s.config = await prepare(s);
     const joined = await request(s, roomPath(s), { a: 'join', attempt: s.attempt });
@@ -894,7 +921,9 @@ function gotRemoteStream(s, wire, e) {
     $('vidWrap').classList.add('show');
     playRemote(s);
   } else {
+    s.voiceLive = true;
     voiceStatus(s, 'LIVE — you can hear each other', 'live');
+    setMuted(s, s.chatMuted);
     playVoice(s);
   }
 }
