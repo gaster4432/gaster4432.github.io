@@ -405,8 +405,10 @@ async function attachHostAudio(s) {
   }
 }
 
-/* Voice chat: a SEPARATE physical mic on the SEPARATE voice PC.
- * Never reuse the desktop-audio device, never fall back to default audio. */
+/* Voice chat: a SEPARATE physical mic on the SEPARATE voice PC, played
+ * through its own <audio> element so it never replaces screen audio.
+ * Never reuse the desktop-audio device, never fall back to default audio.
+ * Echo cancellation/noise suppression stay off as requested — use headphones. */
 async function attachChatAudio(s) {
   const ui = VOICE_UI[s.role];
   const note = text => { if (current(s)) $(ui.status).textContent = text; };
@@ -426,7 +428,7 @@ async function attachChatAudio(s) {
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: {
-      deviceId: { exact: id }, echoCancellation: true, noiseSuppression: true, autoGainControl: true,
+      deviceId: { exact: id }, echoCancellation: false, noiseSuppression: false, autoGainControl: true,
     } });
     if (!current(s)) { stream.getTracks().forEach(t => t.stop()); return; }
     const tracks = stream.getAudioTracks();
@@ -895,7 +897,12 @@ async function startJoin() {
 async function playRemote(s) {
   try {
     await remoteVideo.play();
-    if (current(s)) $('playBtn').hidden = true;
+    if (current(s)) {
+      $('playBtn').hidden = true;
+      // One user gesture can unlock both media elements; desktop audio and
+      // voice are separate tracks on separate PCs and play simultaneously.
+      if (voiceAudio.srcObject) playVoice(s);
+    }
   } catch (e) {
     if (!current(s)) return;
     if (e.name === 'NotAllowedError') $('playBtn').hidden = false;
@@ -959,7 +966,11 @@ $('optHost').onclick = startHost;
 $('optJoin').onclick = () => { show('joinView'); $('codeInput').focus(); };
 $('joinBtn').onclick = startJoin;
 $('retryBtn').onclick = () => { $('joinBtn').disabled = false; startJoin(); };
-$('playBtn').onclick = () => { if (session) playRemote(session); };
+$('playBtn').onclick = () => {
+  if (!session) return;
+  playRemote(session);
+  if (voiceAudio.srcObject) playVoice(session);
+};
 ['stopBtn', 'leaveBtn', 'hostBack', 'joinBack'].forEach(id => $(id).onclick = teardown);
 $('copyBtn').onclick = () => navigator.clipboard.writeText($('codeOut').textContent).then(() => {
   $('copyBtn').textContent = 'Copied!';

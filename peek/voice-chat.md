@@ -43,11 +43,19 @@ lines always say which device is doing which job.
 - **Wear headphones.** Host mic → speakers → the `Desktop_Audio` monitor →
   back into the call is a feedback loop. Headphones do not fix the loopback
   by themselves; keep the captured output off your speakers.
-- The voice mic uses echo cancellation/noise suppression; the desktop-audio
-  input deliberately does not (it must stay a clean playback capture).
+- Echo cancellation and noise suppression are **off** on the voice mic so the
+  Deck's raw mic signal is passed through; headphones are strongly advised.
+- **Both sounds play at once.** Desktop audio arrives on the screen
+  connection and is played by the `<video>` element; the other person's voice
+  arrives on the separate voice connection and is played by its own `<audio>`
+  element. Neither replaces or mutes the other. If the browser blocks autoplay,
+  one tap of **▶ Play video / sound** unlocks both; **🔊 Enable voice sound**
+  is there if only the voice stream was blocked.
+- Desktop audio may not work at all on Steam Deck/Firefox. That does **not**
+  affect voice chat — the two paths are independent, so you can still talk
+  with video only.
 - **Mute** toggles the local mic track (`enabled = false`) — no renegotiation,
   nothing is sent while muted.
-- If autoplay is blocked, use **🔊 Enable voice sound** to start playback.
 
 ## Verification status
 
