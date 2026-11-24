@@ -47,6 +47,8 @@ h1 {
 .audio-options select { width: 100%; margin-top: 6px; padding: 9px; border-radius: 8px; background: #18181b; color: #e8e8ed; border: 1px solid rgba(255,255,255,0.15); }
 .audio-options a { color: #c4b5fd; }
 .audio-options [hidden] { display: none; }
+.voice-block { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.08); }
+.voice-block[hidden] { display: none; }
 
 /* ── panels ── */
 .panel { width: 100%; max-width: 560px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; padding: 28px; margin-top: 4vh; display: none; }
@@ -114,6 +116,7 @@ h1 {
 }
 #previewBox .vid-cap { font-size: 11px; color: rgba(255,255,255,0.5); text-align: right; }
 body.hosting { padding-bottom: 130px; }
+#voiceAudio { display: none; }
 @media (max-width: 640px) {
   .panel { padding: 20px; }
   .menu { margin-top: 4vh; }
@@ -148,23 +151,37 @@ body.hosting { padding-bottom: 130px; }
           <p class="hint" id="audioSetupStatus" role="status">No input selected. Your physical microphone is not used as a fallback.</p>
         </div>
       </div>
+      <div class="voice-block">
+        <label><input type="checkbox" id="voiceChat"> Enable two-way voice chat</label>
+        <div id="voiceSettings" hidden>
+          <p class="hint">Voice uses a <strong>separate physical microphone</strong>. The desktop-audio input selected above is excluded by name and ID — it can never be your chat mic. <a href="voice-chat.md" target="_blank" rel="noopener">Voice chat guide</a></p>
+          <button class="btn" id="findMicsBtn">Find microphones</button>
+          <label for="chatMic">Voice chat microphone
+            <select id="chatMic"><option value="">Choose a physical microphone</option></select>
+          </label>
+          <p class="hint" id="voiceSetupStatus" role="status">Voice chat off.</p>
+        </div>
+      </div>
     </div>
     <button class="opt" id="optHost">
       <span class="oi" aria-hidden="true">🖥️</span>
-      <span><h3>Host a screen share</h3><p>Pick a window, get a code, keep the tab open. Your friend watches live.</p></span>
+      <span><h3>Host a screen share</h3><p>Pick a window, get a code, keep the tab open. Your friend watches live and you can talk.</p></span>
     </button>
     <button class="opt" id="optJoin">
       <span class="oi" aria-hidden="true">👀</span>
-      <span><h3>Join a screen share</h3><p>Got a code from someone? Type it in and watch their screen.</p></span>
+      <span><h3>Join a screen share</h3><p>Got a code from someone? Type it in, watch their screen, and talk.</p></span>
     </button>
     <button class="btn" id="clearCacheBtn" title="Clear this site's stored caches and reload — for easy updates">🧹 Clear site cache & reload</button>
-    <p class="hint" style="text-align:center">Video goes directly between browsers over WebRTC. The server exchanges connection details and keeps your room open; it never carries or records your screen.</p>
+    <p class="hint" style="text-align:center">Video goes directly between browsers over WebRTC. The server exchanges connection details and keeps your room open; it never carries or records your screen or voice.</p>
   </div>
   <div class="panel" id="hostView">
     <h2>Your code — give it to your friend</h2>
     <div class="code-row"><div class="code" id="codeOut">······</div><button class="btn" id="copyBtn" title="Copy code">Copy</button></div>
     <div><span class="status wait" id="hostStatus" role="status"><span class="dot"></span><span id="hostStatusText">connecting…</span></span></div>
+    <div style="margin-top:8px"><span class="status" id="hostVoiceStatus" role="status" hidden><span class="dot"></span><span id="hostVoiceStatusText"></span></span></div>
     <div class="actions">
+      <button class="btn" id="hostMuteBtn" hidden>🎤 Mute mic</button>
+      <button class="btn" id="hostVoicePlayBtn" hidden>🔊 Enable voice sound</button>
       <button class="btn" id="pipBtn" title="Float the preview over your other windows">⧉ Pop out preview</button>
       <button class="btn danger" id="stopBtn">⏹ Stop sharing</button>
       <button class="btn" id="hostBack">Back</button>
@@ -175,6 +192,17 @@ body.hosting { padding-bottom: 130px; }
   <div class="panel" id="joinView">
     <h2>Enter the code</h2>
     <input id="codeInput" maxlength="6" autocomplete="off" spellcheck="false" placeholder="······" aria-label="Room code">
+    <div class="audio-options" style="margin-top:14px">
+      <label><input type="checkbox" id="joinVoiceChat"> Enable voice chat</label>
+      <div id="joinVoiceSettings" hidden>
+        <p class="hint">Pick a physical mic — the host's desktop-audio input is excluded. <a href="voice-chat.md" target="_blank" rel="noopener">Voice chat guide</a></p>
+        <button class="btn" id="joinFindMicsBtn">Find microphones</button>
+        <label for="joinChatMic">Voice chat microphone
+          <select id="joinChatMic"><option value="">Choose a physical microphone</option></select>
+        </label>
+        <p class="hint" id="joinVoiceSetupStatus" role="status">Voice chat off.</p>
+      </div>
+    </div>
     <div class="actions"><button class="btn primary" id="joinBtn">Join</button><button class="btn" id="joinBack">Back</button></div>
     <div style="margin-top:14px"><span class="status" id="joinStatus" role="status" hidden><span class="dot"></span><span id="joinStatusText"></span></span></div>
     <p class="hint">The host has to keep their tab open. If it says no room, check the code — they may have stopped sharing.</p>
@@ -183,6 +211,9 @@ body.hosting { padding-bottom: 130px; }
     <video id="remoteVideo" autoplay playsinline></video>
     <div class="vid-bar">
       <span class="status live" id="liveStatus" role="status"><span class="dot"></span><span id="liveStatusText">live</span></span>
+      <span class="status" id="joinVoiceStatus" role="status" hidden><span class="dot"></span><span id="joinVoiceStatusText"></span></span>
+      <button class="btn" id="joinMuteBtn" hidden>🎤 Mute mic</button>
+      <button class="btn" id="joinVoicePlayBtn" hidden>🔊 Enable voice sound</button>
       <button class="btn" id="playBtn" hidden>▶ Play video / sound</button>
       <button class="btn" id="fsBtn">⛶ Fullscreen</button>
       <button class="btn" id="retryBtn">Retry connection</button>
@@ -191,27 +222,116 @@ body.hosting { padding-bottom: 130px; }
   </div>
 </div>
 <div id="previewBox"><video id="previewVideo" autoplay muted playsinline></video><div class="vid-cap">what your friend sees</div></div>
+<audio id="voiceAudio" autoplay playsinline></audio>
 <script>
 'use strict';
 /* WebRTC call order follows the official webrtc/samples pc1 example.
  * Signaling is a separate Node mailbox; each join owns its connection and
- * negotiation so a stopped call cannot mutate the next one. */
+ * negotiation so a stopped call cannot mutate the next one.
+ *
+ * Two peer connections share one room/code (mailbox protocol 5):
+ *   screen PC — host's video + optional desktop audio, one-way to the joiner.
+ *   voice  PC — each side's physical mic, sent to the other side only.
+ * Offer/answer bundle both SDPs; ICE messages carry wire:'screen'|'voice'.
+ * The mic picker excludes the selected desktop-audio device by name and ID. */
 const SIGNAL = 'https://peek-signal.duckdns.org:25789';
-const PROTOCOL_VERSION = 4;
+const PROTOCOL_VERSION = 5;
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const WIRES = ['screen', 'voice'];
+const MONITOR_RE = /desktop[ _-]?audio|monitor of|\.monitor/i;
+const VOICE_UI = {
+  host: { toggle: 'voiceChat', settings: 'voiceSettings', find: 'findMicsBtn',
+    select: 'chatMic', status: 'voiceSetupStatus' },
+  joiner: { toggle: 'joinVoiceChat', settings: 'joinVoiceSettings', find: 'joinFindMicsBtn',
+    select: 'joinChatMic', status: 'joinVoiceSetupStatus' },
+};
 const $ = id => document.getElementById(id);
 const remoteVideo = $('remoteVideo');
+const voiceAudio = $('voiceAudio');
 const mySid = genSid();
 let session = null;
-let pc1 = null;
-let pc2 = null;
 let hostStarting = false;
 let findingAudio = false;
-let desktopInputs = new Set();
+let findingMics = false;
+let desktopDevices = new Map(); // deviceId -> label (monitor/virtual sources)
+let micDevices = new Map();     // deviceId -> label (all audio inputs)
 
 function updateAudioOptions() {
   $('audioSettings').hidden = !$('shareAudio').checked;
   $('virtualAudioSettings').hidden = $('audioMode').value !== 'virtual';
+  refreshMicSelects();
+}
+function updateVoiceUi() {
+  $('voiceSettings').hidden = !$('voiceChat').checked;
+  $('joinVoiceSettings').hidden = !$('joinVoiceChat').checked;
+}
+
+/* One temporary permission probe, stopped immediately and never transmitted.
+ * Device labels only become visible after mic permission is granted. */
+async function listAudioInputs() {
+  let probe;
+  try {
+    let inputs = await navigator.mediaDevices.enumerateDevices();
+    if (!inputs.some(d => d.kind === 'audioinput' && d.label)) {
+      probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach(t => t.stop());
+      inputs = await navigator.mediaDevices.enumerateDevices();
+    }
+    return inputs.filter(d => d.kind === 'audioinput');
+  } finally {
+    probe?.getTracks().forEach(t => t.stop());
+  }
+}
+
+/* The selected virtual desktop input is banned from the mic picker by BOTH
+ * its exact device ID and its device name — that is the whole point of the
+ * separation. Native screen-audio mode has no such device to ban. */
+function blockedDesktopInput() {
+  if (!$('shareAudio').checked || $('audioMode').value !== 'virtual') return null;
+  const id = $('audioInput').value;
+  if (!id) return null;
+  return { id, label: desktopDevices.get(id) || '' };
+}
+function eligibleMics() {
+  const blocked = blockedDesktopInput();
+  const blockedId = blocked?.id || '';
+  const blockedName = (blocked?.label || '').trim().toLowerCase();
+  return [...micDevices].filter(([id, label]) => {
+    if (id === blockedId) return false;
+    if (blockedName && label.trim().toLowerCase() === blockedName) return false;
+    if (MONITOR_RE.test(label)) return false;
+    return true;
+  });
+}
+function refreshDesktopSelect() {
+  const sel = $('audioInput');
+  const selected = sel.value;
+  sel.replaceChildren(new Option('Choose a desktop audio input', ''));
+  for (const [id, label] of desktopDevices) sel.add(new Option(label || id, id));
+  if (desktopDevices.has(selected)) sel.value = selected;
+}
+function refreshMicSelects() {
+  const mics = eligibleMics();
+  for (const role of ['host', 'joiner']) {
+    const ui = VOICE_UI[role];
+    const sel = $(ui.select);
+    const selected = sel.value;
+    sel.replaceChildren(new Option(mics.length ? 'Choose a physical microphone' : 'No physical microphone found', ''));
+    for (const [id, label] of mics) sel.add(new Option(label || id, id));
+    if (mics.some(([id]) => id === selected)) sel.value = selected;
+    const blocked = blockedDesktopInput();
+    $(ui.status).textContent = blocked?.label
+      ? `“${blocked.label}” is your desktop-audio input and is excluded from the mic list.`
+      : mics.length
+        ? 'Choose a physical mic. Your desktop-audio input is never available here.'
+        : 'No physical microphone found — run Find microphones after granting input permission.';
+  }
+}
+function storeInputs(inputs) {
+  desktopDevices = new Map(inputs.filter(d => MONITOR_RE.test(d.label)).map(d => [d.deviceId, d.label]));
+  micDevices = new Map(inputs.map(d => [d.deviceId, d.label]));
+  refreshDesktopSelect();
+  refreshMicSelects();
 }
 
 async function findDesktopAudio() {
@@ -219,22 +339,9 @@ async function findDesktopAudio() {
   findingAudio = true;
   $('findAudioBtn').disabled = true;
   $('audioSetupStatus').textContent = 'Looking for the desktop audio input…';
-  let permissionStream;
   try {
-    let inputs = await navigator.mediaDevices.enumerateDevices();
-    if (!inputs.some(d => d.kind === 'audioinput' && d.label)) {
-      // Device labels require permission. Never send this temporary input.
-      permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      permissionStream.getTracks().forEach(t => t.stop());
-      inputs = await navigator.mediaDevices.enumerateDevices();
-    }
-    const devices = inputs.filter(d => d.kind === 'audioinput' && /desktop[ _-]?audio|monitor of|\.monitor/i.test(d.label));
-    desktopInputs = new Set(devices.map(d => d.deviceId));
-    const selected = $('audioInput').value;
-    $('audioInput').replaceChildren(new Option('Choose a desktop audio input', ''));
-    devices.forEach(d => $('audioInput').add(new Option(d.label, d.deviceId)));
-    if (desktopInputs.has(selected)) $('audioInput').value = selected;
-    $('audioSetupStatus').textContent = devices.length
+    storeInputs(await listAudioInputs());
+    $('audioSetupStatus').textContent = desktopDevices.size
       ? 'Choose the Desktop_Audio input. Only the selected desktop input is shared.'
       : 'Desktop_Audio not found. Run the setup command on the Deck, then Find again. Video still works without audio.';
   } catch (e) {
@@ -242,9 +349,25 @@ async function findDesktopAudio() {
       ? 'Input permission denied. No microphone or desktop audio is being shared.'
       : `Could not list desktop audio inputs: ${e.message}`;
   } finally {
-    permissionStream?.getTracks().forEach(t => t.stop());
     findingAudio = false;
     $('findAudioBtn').disabled = false;
+  }
+}
+async function findMicrophones(role) {
+  if (findingMics) return;
+  findingMics = true;
+  const ui = VOICE_UI[role];
+  $(ui.find).disabled = true;
+  $(ui.status).textContent = 'Looking for microphones…';
+  try {
+    storeInputs(await listAudioInputs());
+  } catch (e) {
+    $(ui.status).textContent = e.name === 'NotAllowedError'
+      ? 'Input permission denied. No microphone is being used.'
+      : `Could not list microphones: ${e.message}`;
+  } finally {
+    findingMics = false;
+    $(ui.find).disabled = false;
   }
 }
 
@@ -257,7 +380,7 @@ async function attachHostAudio(s) {
       : 'Video only: the browser did not provide screen audio. Firefox on Steam Deck needs the virtual desktop input option.');
     return;
   }
-  if (!s.audio.deviceId || !desktopInputs.has(s.audio.deviceId)) {
+  if (!s.audio.deviceId || !desktopDevices.has(s.audio.deviceId)) {
     note('Video only: no desktop audio input selected. Set up Desktop_Audio and choose it before hosting.');
     return;
   }
@@ -273,13 +396,81 @@ async function attachHostAudio(s) {
       s.stream.addTrack(track);
       track.addEventListener('ended', () => note('Desktop audio input stopped — video sharing continues.'));
     });
-    note(`Desktop audio captured: ${tracks[0].label || 'selected virtual input'}. This is not a physical microphone.`);
+    note(`Desktop audio captured: ${tracks[0].label || desktopDevices.get(s.audio.deviceId) || 'selected virtual input'}. This is not a physical microphone.`);
   } catch (e) {
     note(e.name === 'NotAllowedError'
       ? 'Desktop audio permission denied — video sharing continues without audio.'
       : `Desktop audio unavailable (${e.message}) — video sharing continues without audio.`);
   }
 }
+
+/* Voice chat: a SEPARATE physical mic on the SEPARATE voice PC.
+ * Never reuse the desktop-audio device, never fall back to default audio. */
+async function attachChatAudio(s) {
+  const ui = VOICE_UI[s.role];
+  const note = text => { if (current(s)) $(ui.status).textContent = text; };
+  s.voiceFailed = false;
+  if (!$(ui.toggle).checked) { note('Voice chat off.'); return; }
+  const id = $(ui.select).value;
+  const blocked = blockedDesktopInput();
+  if (!id) {
+    s.voiceFailed = true;
+    note('Choose a physical microphone to enable voice chat.');
+    return;
+  }
+  if ((blocked && id === blocked.id) || !eligibleMics().some(([d]) => d === id)) {
+    s.voiceFailed = true;
+    note('That input is the desktop-audio source and cannot be used as your mic.');
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: {
+      deviceId: { exact: id }, echoCancellation: true, noiseSuppression: true, autoGainControl: true,
+    } });
+    if (!current(s)) { stream.getTracks().forEach(t => t.stop()); return; }
+    const tracks = stream.getAudioTracks();
+    if (!tracks.length) {
+      stream.getTracks().forEach(t => t.stop());
+      s.voiceFailed = true;
+      note('The selected microphone provided no audio track.');
+      return;
+    }
+    s.chatStream = stream;
+    s.voiceEnabled = true;
+    s.chatLabel = $(ui.select).selectedOptions[0]?.textContent || 'physical microphone';
+    s.chatMuted = false;
+    tracks.forEach(t => t.addEventListener('ended', () => {
+      if (current(s)) { note('Voice chat mic stopped.'); setMuted(s, true); }
+    }));
+    note(`Voice chat mic: ${s.chatLabel}. The desktop-audio input is not used for voice.`);
+  } catch (e) {
+    s.voiceFailed = true;
+    note(e.name === 'NotAllowedError'
+      ? 'Mic permission denied — screen share continues without voice.'
+      : `Voice chat unavailable (${e.message}).`);
+  }
+}
+function setMuted(s, muted) {
+  if (!s?.voiceEnabled) return;
+  s.chatMuted = muted;
+  s.chatStream?.getAudioTracks().forEach(t => { t.enabled = !muted; });
+  const btn = $(s.role === 'host' ? 'hostMuteBtn' : 'joinMuteBtn');
+  btn.hidden = false;
+  btn.textContent = muted ? '🔇 Unmute mic' : '🎤 Mute mic';
+}
+function stopVoice(s) {
+  if (!s.voiceEnabled && !s.wires.voice.pc) return;
+  s.chatStream?.getTracks().forEach(t => t.stop());
+  s.chatStream = null;
+  s.voiceEnabled = false;
+  closePc(s, 'voice');
+  const w = s.wires.voice;
+  w.ice = []; w.outgoingIce = []; w.localSent = false;
+  $('hostMuteBtn').hidden = true;
+  $('joinMuteBtn').hidden = true;
+  voiceStatus(s, 'Voice chat off.');
+}
+function voicePlayBtn(s) { return $(s.role === 'host' ? 'hostVoicePlayBtn' : 'joinVoicePlayBtn'); }
 
 const ERRORS = {
   no_host: 'No room with that code — the host may have stopped sharing.',
@@ -315,9 +506,19 @@ function status(s, text, cls = 'wait') {
   setStatus($(prefix + 'Status'), $(prefix + 'StatusText'), text, cls);
   if (s.role === 'joiner') setStatus($('liveStatus'), $('liveStatusText'), text, cls);
 }
+function voiceStatus(s, text, cls = 'wait') {
+  if (!current(s)) return;
+  const prefix = s.role === 'host' ? 'host' : 'join';
+  setStatus($(prefix + 'VoiceStatus'), $(prefix + 'VoiceStatusText'), text, cls);
+}
+function newWire() {
+  return { pc: null, ice: [], outgoingIce: [], localSent: false, remote: new MediaStream() };
+}
 function newSession(role, code) {
   return { role, code, attempt: genSid(), negotiation: 0, controller: new AbortController(),
-    pc: null, stream: null, audioStream: null, remoteStream: new MediaStream(), ice: [], outgoingIce: [],
+    stream: null, audioStream: null, chatStream: null,
+    voiceEnabled: false, chatLabel: '', chatMuted: false,
+    wires: { screen: newWire(), voice: newWire() },
     localSent: false, offerHandled: false, answerHandled: false, stage: 'signaling', timer: null };
 }
 async function request(s, path, body, timeout = 10000) {
@@ -364,21 +565,25 @@ function notifyLeave(s) {
   fetch(SIGNAL + roomPath(s), { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body), keepalive: true }).catch(() => {});
 }
-function closePc(s) {
-  const pc = s.pc;
-  s.pc = null;
+function closePc(s, wire) {
+  const w = s.wires[wire];
+  const pc = w.pc;
+  w.pc = null;
   if (pc) pc.close();
-  if (pc1 === pc) pc1 = null;
-  if (pc2 === pc) pc2 = null;
 }
 function dispose(s, notify = true) {
   if (!s) return;
   if (notify) notifyLeave(s);
   clearTimeout(s.timer);
   s.controller.abort();
-  closePc(s);
+  for (const wire of WIRES) closePc(s, wire);
   s.stream?.getTracks().forEach(t => t.stop());
   s.audioStream?.getTracks().forEach(t => t.stop());
+  s.chatStream?.getTracks().forEach(t => t.stop());
+  s.stream = s.audioStream = s.chatStream = null;
+  voiceAudio.srcObject = null;
+  for (const id of ['hostVoicePlayBtn', 'joinVoicePlayBtn', 'hostMuteBtn', 'joinMuteBtn',
+    'hostVoiceStatus', 'joinVoiceStatus']) $(id).hidden = true;
 }
 function fail(s, error) {
   if (!current(s)) return;
@@ -401,74 +606,128 @@ function armDeadline(s) {
     fail(s, new Error(text));
   }, 45000);
 }
-function createPc(s, config) {
+function createPc(s, config, wire) {
+  const w = s.wires[wire];
   const pc = new RTCPeerConnection(config);
   const generation = s.negotiation;
-  s.pc = pc;
-  if (s.role === 'host') pc1 = pc; else pc2 = pc;
-  const active = () => current(s) && s.pc === pc && s.negotiation === generation;
+  w.pc = pc;
+  const active = () => current(s) && w.pc === pc && s.negotiation === generation;
   pc.addEventListener('icecandidate', e => {
     if (!active() || !e.candidate) return;
-    const msg = { t: 'ice', data: e.candidate.toJSON(), negotiation: generation };
-    if (!s.localSent) s.outgoingIce.push(msg);
+    const msg = { t: 'ice', data: e.candidate.toJSON(), wire, negotiation: generation };
+    if (!w.localSent) w.outgoingIce.push(msg);
     else post(s, 'message', msg).catch(error => {
       if (active() && error.code !== 'stale_negotiation') fail(s, error);
     });
   });
   pc.addEventListener('connectionstatechange', () => {
     if (!active()) return;
-    console.log(`Peek ${s.role}: ${pc.connectionState}`);
+    console.log(`Peek ${s.role}/${wire}: ${pc.connectionState}`);
     if (pc.connectionState === 'connected') {
-      clearTimeout(s.timer);
-      s.stage = 'connected';
-      status(s, s.role === 'host' ? 'LIVE — your friend sees your screen' : 'live', 'live');
-      if (s.role === 'joiner') {
-        $('joinView').classList.remove('show');
-        $('vidWrap').classList.add('show');
-        $('retryBtn').disabled = false;
+      if (wire === 'screen') {
+        clearTimeout(s.timer);
+        s.stage = 'connected';
+        status(s, s.role === 'host' ? 'LIVE — your friend sees your screen' : 'live', 'live');
+        if (s.role === 'joiner') {
+          $('joinView').classList.remove('show');
+          $('vidWrap').classList.add('show');
+          $('retryBtn').disabled = false;
+        }
+        if (s.voiceEnabled) voiceStatus(s, 'voice connecting…');
+      } else if (voiceAudio.srcObject) {
+        voiceStatus(s, 'LIVE — you can hear each other', 'live');
+        setMuted(s, s.chatMuted);
       }
     } else if (pc.connectionState === 'failed') {
-      fail(s, new Error('Offer and answer exchanged, but the direct connection failed — retry the connection.'));
-    } else if (pc.connectionState === 'disconnected') {
+      if (wire === 'screen') fail(s, new Error('Offer and answer exchanged, but the direct connection failed — retry the connection.'));
+      else voiceStatus(s, 'Voice connection failed — screen share continues.', 'bad');
+    } else if (pc.connectionState === 'disconnected' && wire === 'screen') {
       status(s, 'connection interrupted — waiting to reconnect…');
     }
   });
-  if (s.role === 'host') s.stream.getTracks().forEach(t => pc.addTrack(t, s.stream));
-  else pc.addEventListener('track', e => { if (active()) gotRemoteStream(s, e); });
+  if (wire === 'screen') {
+    if (s.role === 'host') s.stream.getTracks().forEach(t => pc.addTrack(t, s.stream));
+    else pc.addEventListener('track', e => { if (active()) gotRemoteStream(s, wire, e); });
+  } else {
+    if (s.voiceEnabled && s.chatStream) s.chatStream.getAudioTracks().forEach(t => pc.addTrack(t, s.chatStream));
+    pc.addEventListener('track', e => { if (active()) gotRemoteStream(s, wire, e); });
+  }
   return pc;
 }
-async function sendDescription(s, pc, desc) {
-  await pc.setLocalDescription(desc);
-  if (!current(s) || s.pc !== pc) return;
-  await post(s, 'message', { t: desc.type, data: pc.localDescription.toJSON(), negotiation: s.negotiation });
-  if (!current(s) || s.pc !== pc) return;
-  s.localSent = true;
-  const candidates = s.outgoingIce.splice(0);
-  for (const msg of candidates) await post(s, 'message', msg);
+function createPcs(s) {
+  createPc(s, s.config, 'screen');
+  if (s.voiceEnabled && s.chatStream) {
+    try { createPc(s, s.config, 'voice'); }
+    catch (e) { console.warn('Peek voice PC failed:', e); stopVoice(s); }
+  }
+}
+async function localDescription(pc, kind) {
+  await pc.setLocalDescription(kind === 'offer' ? await pc.createOffer() : await pc.createAnswer());
+  return pc.localDescription.toJSON();
+}
+async function sendDescription(s, data) {
+  if (!current(s)) return;
+  await post(s, 'message', { t: data.screen.type, data, negotiation: s.negotiation });
+  if (!current(s)) return;
+  for (const wire of WIRES) {
+    const w = s.wires[wire];
+    w.localSent = true;
+    for (const msg of w.outgoingIce.splice(0)) await post(s, 'message', msg);
+  }
 }
 async function hostOffer(s) {
-  const pc = s.pc;
   s.stage = 'offer';
-  await sendDescription(s, pc, await pc.createOffer());
+  let voiceDesc = null;
+  if (s.wires.voice.pc) {
+    try { voiceDesc = await localDescription(s.wires.voice.pc, 'offer'); }
+    catch (e) { console.warn('Peek voice offer failed:', e); stopVoice(s); }
+  }
+  const data = { screen: await localDescription(s.wires.screen.pc, 'offer') };
+  if (voiceDesc) data.voice = voiceDesc;
+  await sendDescription(s, data);
   s.stage = 'waiting';
 }
 async function joinAnswer(s, offer) {
   if (s.offerHandled) return; // SDP may be replayed until its answer is accepted.
   s.offerHandled = true;
   s.stage = 'answer';
-  const pc = createPc(s, s.config);
-  await pc.setRemoteDescription(offer);
-  await flushIce(s, pc);
-  await sendDescription(s, pc, await pc.createAnswer());
+  const screenPc = createPc(s, s.config, 'screen');
+  await screenPc.setRemoteDescription(offer.data.screen);
+  await flushIce(s, 'screen', screenPc);
+  let voicePc = null;
+  if (offer.data.voice && s.voiceEnabled && s.chatStream) {
+    try {
+      voicePc = createPc(s, s.config, 'voice');
+      await voicePc.setRemoteDescription(offer.data.voice);
+      await flushIce(s, 'voice', voicePc);
+    } catch (e) {
+      console.warn('Peek voice answer failed:', e);
+      voicePc = null;
+      stopVoice(s);
+    }
+  }
+  if (s.voiceEnabled && !voicePc) {
+    stopVoice(s);
+    voiceStatus(s, offer.data.voice ? 'Could not start voice chat.' : 'Host did not enable voice chat.');
+  } else if (offer.data.voice && !s.voiceEnabled && s.voiceFailed) {
+    voiceStatus(s, 'Voice chat unavailable — check mic permission.', 'bad');
+  }
+  const data = { screen: await localDescription(screenPc, 'answer') };
+  if (voicePc) data.voice = await localDescription(voicePc, 'answer');
+  await sendDescription(s, data);
   if (current(s)) { s.stage = 'connecting'; status(s, 'answer sent — connecting the browsers…'); }
 }
-async function handleCandidate(s, data) {
-  if (!s.pc?.remoteDescription) { s.ice.push(data); return; }
-  await s.pc.addIceCandidate(data);
+async function handleCandidate(s, msg) {
+  const wire = msg.wire === 'voice' ? 'voice' : 'screen';
+  const w = s.wires[wire];
+  if (wire === 'voice' && !w.pc) return; // peer has voice, we do not
+  if (!w.pc?.remoteDescription) { w.ice.push(msg.data); return; }
+  await w.pc.addIceCandidate(msg.data);
 }
-async function flushIce(s, pc) {
-  for (const data of s.ice.splice(0)) {
-    if (!current(s) || s.pc !== pc) return;
+async function flushIce(s, wire, pc) {
+  const w = s.wires[wire];
+  for (const data of w.ice.splice(0)) {
+    if (!current(s) || w.pc !== pc) return;
     await pc.addIceCandidate(data);
   }
 }
@@ -476,11 +735,15 @@ async function handleSignal(s, msg) {
   if (!current(s) || !msg) return;
   if (msg.t === 'ready' && s.role === 'host') {
     if (msg.negotiation <= s.negotiation) return;
-    closePc(s);
+    for (const wire of WIRES) closePc(s, wire);
     s.negotiation = msg.negotiation;
-    s.ice = []; s.outgoingIce = []; s.localSent = false; s.answerHandled = false;
+    for (const wire of WIRES) {
+      const w = s.wires[wire];
+      w.ice = []; w.outgoingIce = []; w.localSent = false;
+    }
+    s.answerHandled = false;
     status(s, 'friend is connecting…');
-    createPc(s, s.config);
+    createPcs(s);
     await hostOffer(s);
     return;
   }
@@ -490,17 +753,28 @@ async function handleSignal(s, msg) {
       if (s.role === 'joiner') await joinAnswer(s, msg.data);
       break;
     case 'answer':
-      if (s.role === 'host' && s.pc && !s.answerHandled) {
+      if (s.role === 'host' && s.wires.screen.pc && !s.answerHandled) {
         s.answerHandled = true;
-        await s.pc.setRemoteDescription(msg.data);
-        await flushIce(s, s.pc);
+        const screenPc = s.wires.screen.pc;
+        await screenPc.setRemoteDescription(msg.data.screen);
+        await flushIce(s, 'screen', screenPc);
+        const voicePc = s.wires.voice.pc;
+        if (voicePc && msg.data.voice) {
+          await voicePc.setRemoteDescription(msg.data.voice);
+          await flushIce(s, 'voice', voicePc);
+        } else if (s.voiceEnabled && !msg.data.voice) {
+          stopVoice(s);
+          voiceStatus(s, 'Friend did not enable voice chat.');
+        }
         await post(s, 'ack');
       }
       break;
-    case 'ice': await handleCandidate(s, msg.data); break;
+    case 'ice': await handleCandidate(s, msg); break;
     case 'bye':
-      if (s.role === 'host') { closePc(s); status(s, 'friend left — waiting for a new connection'); }
-      else fail(s, new Error('The host closed the share.'));
+      if (s.role === 'host') {
+        for (const wire of WIRES) closePc(s, wire);
+        status(s, 'friend left — waiting for a new connection');
+      } else fail(s, new Error('The host closed the share.'));
       break;
     default: console.warn('Unknown Peek signal:', msg.t);
   }
@@ -527,6 +801,7 @@ async function startHost() {
   show('hostView');
   $('codeOut').textContent = '······';
   $('hostAudioNote').textContent = '';
+  $('hostVoiceStatus').hidden = true;
   status(s, 'pick a screen to share…');
   try {
     const nativeAudio = s.audio.enabled && s.audio.mode === 'native';
@@ -539,6 +814,9 @@ async function startHost() {
     s.stream.getVideoTracks()[0].addEventListener('ended', () => { if (current(s)) teardown(); });
     await attachHostAudio(s);
     if (!current(s)) return;
+    await attachChatAudio(s);
+    if (!current(s)) return;
+    if (s.voiceEnabled) voiceStatus(s, 'waiting for your friend…');
     $('previewVideo').srcObject = s.stream;
     $('previewBox').classList.add('show');
     status(s, 'asking the server for a code…');
@@ -548,7 +826,7 @@ async function startHost() {
     s.code = created.code;
     s.negotiation = created.negotiation;
     $('codeOut').textContent = s.code;
-    createPc(s, s.config);
+    createPcs(s);
     await hostOffer(s);
     status(s, 'waiting for your friend…');
     signalLoop(s);
@@ -566,12 +844,18 @@ async function startJoin() {
   dispose(session, session?.code !== code);
   const s = session = newSession('joiner', code);
   remoteVideo.srcObject = null;
+  voiceAudio.srcObject = null;
   $('playBtn').hidden = true;
+  voicePlayBtn(s).hidden = true;
+  $('joinVoiceStatus').hidden = true;
   show('joinView');
   $('joinBtn').disabled = true;
   $('retryBtn').disabled = true;
   status(s, 'contacting the signaling server…');
   armDeadline(s);
+  await attachChatAudio(s); // mic ready before the offer arrives
+  if (!current(s)) return;
+  if (s.voiceEnabled) voiceStatus(s, 'waiting for the host…');
   try {
     s.config = await prepare(s);
     const joined = await request(s, roomPath(s), { a: 'join', attempt: s.attempt });
@@ -591,11 +875,28 @@ async function playRemote(s) {
     else if (e.name !== 'AbortError') fail(s, new Error(`Video playback failed: ${e.message}`));
   }
 }
-function gotRemoteStream(s, e) {
-  if (!s.remoteStream.getTracks().includes(e.track)) s.remoteStream.addTrack(e.track);
-  if (remoteVideo.srcObject !== s.remoteStream) remoteVideo.srcObject = s.remoteStream;
-  $('vidWrap').classList.add('show');
-  playRemote(s);
+async function playVoice(s) {
+  try {
+    await voiceAudio.play();
+    if (current(s)) voicePlayBtn(s).hidden = true;
+  } catch (e) {
+    if (!current(s)) return;
+    if (e.name === 'NotAllowedError') voicePlayBtn(s).hidden = false;
+    else if (e.name !== 'AbortError') console.warn('Peek voice playback failed:', e);
+  }
+}
+function gotRemoteStream(s, wire, e) {
+  const w = s.wires[wire];
+  if (!w.remote.getTracks().includes(e.track)) w.remote.addTrack(e.track);
+  const el = wire === 'screen' ? remoteVideo : voiceAudio;
+  if (el.srcObject !== w.remote) el.srcObject = w.remote;
+  if (wire === 'screen') {
+    $('vidWrap').classList.add('show');
+    playRemote(s);
+  } else {
+    voiceStatus(s, 'LIVE — you can hear each other', 'live');
+    playVoice(s);
+  }
 }
 function teardown() {
   dispose(session);
@@ -603,6 +904,7 @@ function teardown() {
   $('previewVideo').srcObject = null;
   $('previewBox').classList.remove('show');
   remoteVideo.srcObject = null;
+  voiceAudio.srcObject = null;
   $('playBtn').hidden = true;
   if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
   show('menu');
@@ -613,8 +915,17 @@ function teardown() {
 }
 $('shareAudio').onchange = updateAudioOptions;
 $('audioMode').onchange = updateAudioOptions;
+$('audioInput').onchange = refreshMicSelects;
+$('voiceChat').onchange = updateVoiceUi;
+$('joinVoiceChat').onchange = updateVoiceUi;
 $('findAudioBtn').onclick = findDesktopAudio;
-updateAudioOptions();
+$('findMicsBtn').onclick = () => findMicrophones('host');
+$('joinFindMicsBtn').onclick = () => findMicrophones('joiner');
+updateAudioOptions(); updateVoiceUi();
+$('hostMuteBtn').onclick = () => setMuted(session, !session?.chatMuted);
+$('joinMuteBtn').onclick = () => setMuted(session, !session?.chatMuted);
+$('hostVoicePlayBtn').onclick = () => { if (session) playVoice(session); };
+$('joinVoicePlayBtn').onclick = () => { if (session) playVoice(session); };
 $('optHost').onclick = startHost;
 $('optJoin').onclick = () => { show('joinView'); $('codeInput').focus(); };
 $('joinBtn').onclick = startJoin;

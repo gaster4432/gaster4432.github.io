@@ -1,17 +1,21 @@
 // ==========================================
-// Peek signaling mailbox v4 — room logic, no HTTP in here.
+// Peek signaling mailbox v5 — room logic, no HTTP in here.
 // Server-issued codes, pre-deposited offers, and one viewer per room.
 // Each explicit join owns a negotiation; late messages from an old call
 // cannot change its replacement. Media still flows directly over WebRTC.
+//
+// v5: one room carries two peer connections. An offer/answer bundles both
+// SDPs as {screen, voice?}; ICE messages carry wire:'screen'|'voice'. The
+// mailbox only stores and forwards them — it never interprets the media.
 // ==========================================
 
 import crypto from 'node:crypto';
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 export const FRESH_MS = 40000;
 export const PARK_MS = 15000;
 export const CODE_RE = /^[A-Z0-9]{4,10}$/;
-export const MAX_SDP_CHARS = 65536;
+export const MAX_SDP_CHARS = 131072; // two SDP blobs plus JSON wrapper
 
 const ROOM_IDLE_MS = 2 * 60 * 60 * 1000;
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -19,6 +23,19 @@ const VALID_TYPES = new Set(['offer', 'answer', 'ice', 'bye']);
 const rooms = new Map();
 const ok = data => ({ status: 200, data: { ok: true, ...data } });
 const fail = (error, status = 409) => ({ status, data: { error } });
+
+function validDescription(data, type) {
+  return !!data && typeof data === 'object' && !Array.isArray(data) &&
+    data.type === type && typeof data.sdp === 'string' && !!data.sdp;
+}
+
+// The screen SDP is mandatory; voice is optional (either side can leave
+// voice chat off). Keep the shape strict so junk cannot enter the mailbox.
+function validBundle(data, type) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+  if (!validDescription(data.screen, type)) return false;
+  return data.voice === undefined || validDescription(data.voice, type);
+}
 
 function roomLog(code, event) {
   console.log(`[${new Date().toISOString()}] ${code}: ${event}`);
@@ -141,11 +158,11 @@ export function handleAction(code, role, sid, body) {
   if (msg.t === 'offer' && role !== 'host') return fail('not_host', 403);
   if (msg.t === 'answer' && role !== 'joiner') return fail('not_joiner', 403);
   if (JSON.stringify(msg).length > MAX_SDP_CHARS) return fail('too_big', 413);
-  if ((msg.t === 'offer' || msg.t === 'answer') &&
-      (!msg.data || msg.data.type !== msg.t || typeof msg.data.sdp !== 'string' || !msg.data.sdp)) {
+  if ((msg.t === 'offer' || msg.t === 'answer') && !validBundle(msg.data, msg.t)) {
     return fail('bad_message', 400);
   }
-  if (msg.t === 'ice' && (!msg.data || typeof msg.data.candidate !== 'string')) {
+  if (msg.t === 'ice' && (!msg.data || typeof msg.data.candidate !== 'string' ||
+      (msg.wire !== undefined && msg.wire !== 'screen' && msg.wire !== 'voice'))) {
     return fail('bad_message', 400);
   }
   if (role === 'host') room.hostSeen = now;

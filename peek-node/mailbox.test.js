@@ -2,8 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRoom, handleAction, poll, FRESH_MS } from './mailbox.js';
 
-const sdp = (type, negotiation = 0) => ({ t: type, negotiation, data: { type, sdp: 'v=0\r\n' } });
-const ice = negotiation => ({ t: 'ice', negotiation, data: { candidate: 'candidate:test', sdpMid: '0' } });
+const sdp = (type, negotiation = 0, voice = true) => ({
+  t: type, negotiation,
+  data: { screen: { type, sdp: 'v=0\r\n' }, ...(voice ? { voice: { type, sdp: 'v=0\r\n' } } : {}) },
+});
+const ice = (negotiation, wire = 'screen') => ({
+  t: 'ice', negotiation, wire, data: { candidate: 'candidate:test', sdpMid: '0' },
+});
 function room() { return createRoom('host').data.code; }
 function action(code, role, sid, a, extra = {}) { return handleAction(code, role, sid, { a, ...extra }); }
 function join(code, attempt = 'attempt001', sid = 'viewer') {
@@ -97,6 +102,28 @@ test('ownership, SDP shape, and nonexistent rooms are checked', () => {
   assert.equal(message(code, 'joiner', sdp('answer'), 'attempt001', 'impostor').data.error, 'unknown_joiner');
   close(code);
   assert.equal(join(code).data.error, 'no_host');
+});
+
+test('v5 bundles both SDPs and forwards wire-tagged ICE', async () => {
+  const code = room();
+  assert.equal(message(code, 'host', sdp('offer')).status, 200);
+  join(code);
+  const offer = (await poll(code, 'joiner', 'viewer', 'attempt001')).data.msgs[0];
+  assert.deepEqual(Object.keys(offer.data), ['screen', 'voice']);
+  assert.equal(message(code, 'joiner', ice(0, 'voice'), 'attempt001').status, 200);
+  const msgs = (await poll(code, 'host', 'host')).data.msgs;
+  assert.equal(msgs.some(m => m.wire === 'voice'), true);
+  assert.equal(message(code, 'joiner', sdp('answer'), 'attempt001').status, 200);
+  close(code);
+});
+
+test('voice SDP is optional but bad bundles and unknown wires are rejected', () => {
+  const code = room(); join(code);
+  assert.equal(message(code, 'host', sdp('offer', 0, false)).status, 200);
+  assert.equal(message(code, 'host', { t: 'offer', negotiation: 0, data: { type: 'offer', sdp: 'v=0' } }).data.error, 'bad_message');
+  assert.equal(message(code, 'host', { t: 'offer', negotiation: 0, data: { screen: { type: 'answer', sdp: 'v=0' } } }).data.error, 'bad_message');
+  assert.equal(message(code, 'host', ice(0, 'video')).data.error, 'bad_message');
+  close(code);
 });
 
 test('unauthorized polls cannot cancel an admitted viewer poll', async () => {

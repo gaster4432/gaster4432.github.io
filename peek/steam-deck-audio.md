@@ -53,7 +53,11 @@ If the viewer's browser blocks playback, use **Play video / sound**.
 - Incoming voice/video-call sound on that output can be sent back to the
   call, creating digital feedback. Headphones do not stop that loopback.
   Keep incoming calls on a different output or avoid capturing them.
-- This is desktop sound, not simultaneous voice-microphone mixing.
+- This is desktop sound only. Voice chat is a **separate** feature with a
+  **separate physical microphone** on a separate peer connection — see
+  [voice-chat.md](voice-chat.md). Once you select the Desktop_Audio input
+  here, Peek excludes that device's **name and ID** from the voice-mic picker;
+  it cannot be chosen as your chat mic.
 - Stop sharing closes both screen and audio capture.
 - This setup is documented but has not been verified on your particular
   Steam Deck/Firefox installation. A local synthetic audio test verifies

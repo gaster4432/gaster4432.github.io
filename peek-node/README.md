@@ -39,18 +39,36 @@ Install the cert to the container root and the egg just works:
 acme.sh's cron renews and rewrites those files; **restart the server from
 the panel** after a renewal to load the new cert.
 
-## Protocol (v4)
+## Protocol (v5)
 
-`GET /` returns `{ok:true, service:'peek-signal-node', protocol:4}`.
+`GET /` returns `{ok:true, service:'peek-signal-node', protocol:5}`.
 `GET /ice` returns the STUN list; there is no media relay.
 
 The host creates its room with `POST /room/create?role=host&sid=<tab-id>`.
-The server returns `{ok:true, code, negotiation:0, protocol:4}`. The host
+The server returns `{ok:true, code, negotiation:0, protocol:5}`. The host
 posts an offer immediately, before a viewer arrives.
 
 All other requests use `/room?code=<CODE>&role=host|joiner&sid=<tab-id>`.
 A viewer also supplies `attempt=<join-id>` on polls and `attempt` in POST
 bodies. Each click of Join creates a new attempt while retaining its tab ID.
+
+**Two peer connections, one room.** Peek runs a one-way *screen* PC (host
+video + optional desktop audio → viewer) and a bidirectional *voice* PC
+(each side's physical mic → the other side). The two media paths never mix:
+the desktop-audio device is excluded from the voice-mic picker by device ID
+and device name. Because there is still only one code and one handshake, an
+`offer`/`answer` carries **both** SDPs:
+
+```json
+{ "t": "offer", "negotiation": 0,
+  "data": { "screen": { "type": "offer", "sdp": "..." },
+            "voice":  { "type": "offer", "sdp": "..." } } }
+```
+
+The `voice` key is optional (voice chat can be off on either side). `ice`
+messages carry an extra `wire: "screen" | "voice"` tag so each browser can
+route the candidate to the right peer connection; the mailbox only stores
+and forwards the whole message. `MAX_SDP_CHARS` is 131072 to fit both blobs.
 
 | Call | Meaning |
 |---|---|
@@ -71,10 +89,11 @@ leave/close notifications. Video still flows directly browser-to-browser.
 ## Updating and testing
 
 **Deploy `server.js`, `mailbox.js`, and the updated `peek/index.html` together.**
-The page checks protocol 4 and reports an update mismatch instead of trying
-an incompatible handshake. Restart the Altare server after uploading both
-server files, then publish the page and refresh both tabs. Do not change
-or overwrite the existing TLS certificate/key during this update.
+The page checks protocol 5 and reports an update mismatch instead of trying
+an incompatible handshake — an older page cannot talk to this server, and
+vice versa. Restart the Altare server after uploading both server files,
+then publish the page and refresh both tabs. Do not change or overwrite the
+existing TLS certificate/key during this update.
 
 Run `npm test` in this folder for mailbox regressions. Test the actual page
 with two browsers too: first join, visible moving video, same-tab Retry,
